@@ -1,0 +1,284 @@
+"use client"
+
+import { useState } from "react"
+import { Header } from "@/components/header"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Switch } from "@/components/ui/switch"
+import { DataModeToggle } from "@/components/data-mode-toggle"
+import { User, Bell, Shield, Database, Moon, Globe } from "lucide-react"
+
+export default function SettingsPage() {
+  const [notifications, setNotifications] = useState({
+    bookingConfirmed: true,
+    bookingReminder: true,
+    newReview: true,
+    promotions: false,
+  })
+
+  const [darkMode, setDarkMode] = useState(true)
+
+  return (
+    <div className="min-h-screen bg-background">
+      <Header />
+
+      <main className="container mx-auto px-4 py-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-foreground mb-2">Configurações</h1>
+          <p className="text-muted-foreground">Gerencie suas preferências e configurações da conta</p>
+        </div>
+
+        <Tabs defaultValue="account" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-2 lg:grid-cols-5">
+            <TabsTrigger value="account" className="gap-2">
+              <User className="h-4 w-4" />
+              <span className="hidden sm:inline">Conta</span>
+            </TabsTrigger>
+            <TabsTrigger value="notifications" className="gap-2">
+              <Bell className="h-4 w-4" />
+              <span className="hidden sm:inline">Notificações</span>
+            </TabsTrigger>
+            <TabsTrigger value="privacy" className="gap-2">
+              <Shield className="h-4 w-4" />
+              <span className="hidden sm:inline">Privacidade</span>
+            </TabsTrigger>
+            <TabsTrigger value="appearance" className="gap-2">
+              <Moon className="h-4 w-4" />
+              <span className="hidden sm:inline">Aparência</span>
+            </TabsTrigger>
+            <TabsTrigger value="data" className="gap-2">
+              <Database className="h-4 w-4" />
+              <span className="hidden sm:inline">Dados</span>
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Account Settings */}
+          <TabsContent value="account" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Informações da Conta</CardTitle>
+                <CardDescription>Atualize suas informações pessoais</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="name">Nome Completo</Label>
+                  <Input id="name" defaultValue="João Silva" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
+                  <Input id="email" type="email" defaultValue="joao@example.com" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="phone">Telefone</Label>
+                  <Input id="phone" type="tel" defaultValue="(32) 99999-9999" />
+                </div>
+                <Button>Salvar Alterações</Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Alterar Senha</CardTitle>
+                <CardDescription>Mantenha sua conta segura</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="current-password">Senha Atual</Label>
+                  <Input id="current-password" type="password" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-password">Nova Senha</Label>
+                  <Input id="new-password" type="password" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="confirm-password">Confirmar Nova Senha</Label>
+                  <Input id="confirm-password" type="password" />
+                </div>
+                <Button>Atualizar Senha</Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Notifications */}
+          <TabsContent value="notifications" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Preferências de Notificação</CardTitle>
+                <CardDescription>Escolha quais notificações você deseja receber</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Confirmação de Agendamento</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Receba notificações quando um agendamento for confirmado
+                    </p>
+                  </div>
+                  <Switch
+                    checked={notifications.bookingConfirmed}
+                    onCheckedChange={(checked) => setNotifications({ ...notifications, bookingConfirmed: checked })}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Lembrete de Agendamento</Label>
+                    <p className="text-sm text-muted-foreground">Receba lembretes 10 minutos antes do horário</p>
+                  </div>
+                  <Switch
+                    checked={notifications.bookingReminder}
+                    onCheckedChange={(checked) => setNotifications({ ...notifications, bookingReminder: checked })}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Novas Avaliações</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Notificações sobre novas avaliações da sua barbearia
+                    </p>
+                  </div>
+                  <Switch
+                    checked={notifications.newReview}
+                    onCheckedChange={(checked) => setNotifications({ ...notifications, newReview: checked })}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Promoções e Ofertas</Label>
+                    <p className="text-sm text-muted-foreground">Receba ofertas especiais e promoções</p>
+                  </div>
+                  <Switch
+                    checked={notifications.promotions}
+                    onCheckedChange={(checked) => setNotifications({ ...notifications, promotions: checked })}
+                  />
+                </div>
+
+                <Button>Salvar Preferências</Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Privacy */}
+          <TabsContent value="privacy" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Privacidade e Segurança</CardTitle>
+                <CardDescription>Controle quem pode ver suas informações</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Perfil Público</Label>
+                    <p className="text-sm text-muted-foreground">Permitir que outros usuários vejam seu perfil</p>
+                  </div>
+                  <Switch defaultChecked />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Mostrar Histórico de Avaliações</Label>
+                    <p className="text-sm text-muted-foreground">Exibir suas avaliações publicamente</p>
+                  </div>
+                  <Switch defaultChecked />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Autenticação de Dois Fatores</Label>
+                    <p className="text-sm text-muted-foreground">Adicione uma camada extra de segurança</p>
+                  </div>
+                  <Switch />
+                </div>
+
+                <Button variant="destructive">Excluir Conta</Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Appearance */}
+          <TabsContent value="appearance" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Aparência</CardTitle>
+                <CardDescription>Personalize a aparência do aplicativo</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Modo Escuro</Label>
+                    <p className="text-sm text-muted-foreground">Ativar tema escuro (atualmente ativo)</p>
+                  </div>
+                  <Switch checked={darkMode} onCheckedChange={setDarkMode} />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Idioma</Label>
+                  <div className="flex items-center gap-2">
+                    <Globe className="h-4 w-4 text-muted-foreground" />
+                    <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                      <option value="pt-BR">Português (Brasil)</option>
+                      <option value="en">English</option>
+                      <option value="es">Español</option>
+                    </select>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Data Mode */}
+          <TabsContent value="data" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Modo de Dados</CardTitle>
+                <CardDescription>Alterne entre dados de teste (Mock) e dados reais (Firebase)</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-border bg-muted/50 p-4">
+                    <h3 className="font-semibold mb-2">Modo Atual</h3>
+                    <DataModeToggle />
+                  </div>
+
+                  <div className="space-y-2">
+                    <h4 className="font-medium">Sobre os Modos:</h4>
+                    <div className="space-y-2 text-sm text-muted-foreground">
+                      <p>
+                        <strong className="text-foreground">Mock:</strong> Usa dados de exemplo locais. Ideal para
+                        testes e desenvolvimento sem conexão com banco de dados.
+                      </p>
+                      <p>
+                        <strong className="text-foreground">Firebase:</strong> Conecta ao Firebase para dados reais.
+                        Requer configuração das variáveis de ambiente do Firebase.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+                    <h4 className="font-medium text-primary mb-2">Configuração do Firebase</h4>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      Para usar o modo Firebase, adicione as seguintes variáveis de ambiente:
+                    </p>
+                    <ul className="text-xs font-mono space-y-1 text-muted-foreground">
+                      <li>NEXT_PUBLIC_FIREBASE_API_KEY</li>
+                      <li>NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN</li>
+                      <li>NEXT_PUBLIC_FIREBASE_PROJECT_ID</li>
+                      <li>NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET</li>
+                      <li>NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID</li>
+                      <li>NEXT_PUBLIC_FIREBASE_APP_ID</li>
+                    </ul>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </main>
+    </div>
+  )
+}
