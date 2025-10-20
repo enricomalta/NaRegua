@@ -9,9 +9,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
 import { DataModeToggle } from "@/components/data-mode-toggle"
+import { useAuth } from "@/lib/auth-context"
+import { useRoleProtection, RoleBasedContent } from "@/hooks/use-role-protection"
 import { User, Bell, Shield, Database, Moon, Globe } from "lucide-react"
 
 export default function SettingsPage() {
+  const { user, authUser } = useAuth()
+  const { isAuthorized, loading: authLoading } = useRoleProtection({
+    requireAuth: true
+  })
+
   const [notifications, setNotifications] = useState({
     bookingConfirmed: true,
     bookingReminder: true,
@@ -20,6 +27,23 @@ export default function SettingsPage() {
   })
 
   const [darkMode, setDarkMode] = useState(true)
+
+  if (authLoading || !isAuthorized) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    )
+  }
+
+  const getRoleDisplay = (role: string) => {
+    switch (role) {
+      case 'client': return 'Cliente'
+      case 'barber': return 'Barbeiro' 
+      case 'admin': return 'Administrador'
+      default: return 'Usuário'
+    }
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -65,15 +89,33 @@ export default function SettingsPage() {
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="name">Nome Completo</Label>
-                  <Input id="name" defaultValue="João Silva" />
+                  <Input id="name" defaultValue={user?.name || ''} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="email">Email</Label>
-                  <Input id="email" type="email" defaultValue="joao@example.com" />
+                  <Input id="email" type="email" defaultValue={user?.email || ''} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="phone">Telefone</Label>
-                  <Input id="phone" type="tel" defaultValue="(32) 99999-9999" />
+                  <Input id="phone" type="tel" defaultValue={user?.phone || ''} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Tipo de Conta</Label>
+                  <div className="p-3 bg-muted rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium">{getRoleDisplay(authUser?.role || 'client')}</p>
+                        <p className="text-sm text-muted-foreground">Sua função na plataforma</p>
+                      </div>
+                      <div className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        authUser?.role === 'client' ? 'bg-blue-100 text-blue-600' :
+                        authUser?.role === 'barber' ? 'bg-green-100 text-green-600' :
+                        'bg-purple-100 text-purple-600'
+                      }`}>
+                        {authUser?.role?.toUpperCase()}
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <Button>Salvar Alterações</Button>
               </CardContent>
@@ -138,7 +180,10 @@ export default function SettingsPage() {
                   <div className="space-y-0.5">
                     <Label>Novas Avaliações</Label>
                     <p className="text-sm text-muted-foreground">
-                      Notificações sobre novas avaliações da sua barbearia
+                      {authUser?.role === 'barber' 
+                        ? 'Notificações sobre novas avaliações da sua barbearia'
+                        : 'Notificações sobre avaliações das suas barbearias favoritas'
+                      }
                     </p>
                   </div>
                   <Switch
@@ -147,16 +192,28 @@ export default function SettingsPage() {
                   />
                 </div>
 
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Promoções e Ofertas</Label>
-                    <p className="text-sm text-muted-foreground">Receba ofertas especiais e promoções</p>
+                <RoleBasedContent allowedRoles={['client']}>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label>Promoções e Ofertas</Label>
+                      <p className="text-sm text-muted-foreground">Receba ofertas especiais das barbearias</p>
+                    </div>
+                    <Switch
+                      checked={notifications.promotions}
+                      onCheckedChange={(checked) => setNotifications({ ...notifications, promotions: checked })}
+                    />
                   </div>
-                  <Switch
-                    checked={notifications.promotions}
-                    onCheckedChange={(checked) => setNotifications({ ...notifications, promotions: checked })}
-                  />
-                </div>
+                </RoleBasedContent>
+
+                <RoleBasedContent allowedRoles={['barber']}>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label>Novos Agendamentos</Label>
+                      <p className="text-sm text-muted-foreground">Notificações sobre novos agendamentos</p>
+                    </div>
+                    <Switch defaultChecked />
+                  </div>
+                </RoleBasedContent>
 
                 <Button>Salvar Preferências</Button>
               </CardContent>

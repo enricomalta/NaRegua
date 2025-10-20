@@ -146,7 +146,7 @@ export function LeafletMap({ barbershops, onSelectBarbershop, selectedBarbershop
               font-size: 12px;
               color: oklch(0.7 0 0);
               margin: 0 0 8px 0;
-            ">${barbershop.address}</p>
+            ">${barbershop.address.fullAddress}</p>
             <div style="
               display: flex;
               gap: 8px;

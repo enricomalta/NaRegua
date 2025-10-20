@@ -1,6 +1,6 @@
 "use client"
 
-import { use, useState } from "react"
+import { use, useState, useEffect } from "react"
 import { Header } from "@/components/header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -8,11 +8,12 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
 import { ReviewForm } from "@/components/review-form"
-import { mockBarbershops, mockReviews } from "@/lib/mock-data"
+import { getBarbershopById, getReviewsByBarbershop } from "@/lib/firebase-service"
 import { MapPin, Phone, Clock, Star, Navigation } from "lucide-react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
+import type { Barbershop, Review } from "@/lib/types"
 
 const daysOfWeek = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const
 const dayNames = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
@@ -20,9 +21,46 @@ const dayNames = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "
 export default function BarbershopPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const { toast } = useToast()
-  const barbershop = mockBarbershops.find((b) => b.id === id)
-  const reviews = mockReviews.filter((r) => r.barbershopId === id)
+  const [barbershop, setBarbershop] = useState<Barbershop | null>(null)
+  const [reviews, setReviews] = useState<Review[]>([])
+  const [loading, setLoading] = useState(true)
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false)
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [barbershopData, reviewsData] = await Promise.all([
+          getBarbershopById(id),
+          getReviewsByBarbershop(id)
+        ])
+        
+        if (!barbershopData) {
+          notFound()
+          return
+        }
+        
+        setBarbershop(barbershopData)
+        setReviews(reviewsData)
+      } catch (error) {
+        console.error("Erro ao carregar dados da barbearia:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadData()
+  }, [id])
+
+  if (loading) {
+    return (
+      <div className="min-h-screen">
+        <Header />
+        <main className="pt-16 flex items-center justify-center">
+          <p className="text-muted-foreground">Carregando...</p>
+        </main>
+      </div>
+    )
+  }
 
   if (!barbershop) {
     notFound()
@@ -84,7 +122,7 @@ export default function BarbershopPage({ params }: { params: Promise<{ id: strin
                     <div className="flex items-start gap-3">
                       <MapPin className="h-5 w-5 text-muted-foreground mt-0.5 flex-shrink-0" />
                       <div className="flex-1">
-                        <p className="text-sm">{barbershop.address}</p>
+                        <p className="text-sm">{barbershop.address.fullAddress}</p>
                         <Button variant="link" className="h-auto p-0 text-primary" asChild>
                           <a
                             href={`https://maps.google.com/?q=${barbershop.latitude},${barbershop.longitude}`}

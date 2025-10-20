@@ -1,32 +1,89 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Header } from "@/components/header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { mockBarbershops, mockBookings } from "@/lib/mock-data"
+import { useAuth } from "@/lib/auth-context"
+import { useRoleProtection } from "@/hooks/use-role-protection"
+import { getBookingsByClient, getBarbershops } from "@/lib/firebase-service"
 import { Calendar, MapPin, Clock, Star, Search, Heart, History } from "lucide-react"
 import Link from "next/link"
 import { formatDate } from "@/lib/utils"
+import type { Booking, Barbershop } from "@/lib/types"
 
 export default function ClientDashboardPage() {
-  // Mock: In production, get the logged-in client's ID
-  const clientId = "client1"
-  const clientBookings = mockBookings.filter((b) => b.clientId === clientId)
-
+  const { user } = useAuth()
+  const { isAuthorized, loading: authLoading } = useRoleProtection({
+    requiredRoles: ['client'],
+    requireAuth: true
+  })
+  
+  const [bookings, setBookings] = useState<Booking[]>([])
+  const [barbershops, setBarbershops] = useState<Barbershop[]>([])
+  const [loading, setLoading] = useState(true)
   const [selectedTab, setSelectedTab] = useState("upcoming")
 
-  // Separate bookings by status
-  const upcomingBookings = clientBookings.filter((b) => b.status === "confirmed" || b.status === "pending")
-  const pastBookings = clientBookings.filter((b) => b.status === "completed" || b.status === "cancelled")
+  if (authLoading || !isAuthorized) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    )
+  }
 
-  // Mock favorites
-  const favoriteShops = mockBarbershops.slice(0, 2)
+  useEffect(() => {
+    const loadData = async () => {
+      if (!user) return
+
+      try {
+        const [clientBookings, allBarbershops] = await Promise.all([
+          getBookingsByClient(user.id),
+          getBarbershops()
+        ])
+        
+        setBookings(clientBookings)
+        setBarbershops(allBarbershops)
+      } catch (error) {
+        console.error("Erro ao carregar dados:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadData()
+  }, [user])
+
+  if (!user) {
+    return (
+      <div className="min-h-screen">
+        <Header />
+        <main className="pt-16 flex items-center justify-center">
+          <p className="text-muted-foreground">Faça login para ver seus agendamentos</p>
+        </main>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen">
+        <Header />
+        <main className="pt-16 flex items-center justify-center">
+          <p className="text-muted-foreground">Carregando...</p>
+        </main>
+      </div>
+    )
+  }
+
+  // Separate bookings by status
+  const upcomingBookings = bookings.filter((b) => b.status === "confirmed" || b.status === "pending")
+  const pastBookings = bookings.filter((b) => b.status === "completed" || b.status === "cancelled")
 
   const getBarbershop = (barbershopId: string) => {
-    return mockBarbershops.find((b) => b.id === barbershopId)
+    return barbershops.find((b) => b.id === barbershopId)
   }
 
   const getService = (barbershopId: string, serviceId: string) => {
@@ -95,12 +152,12 @@ export default function ClientDashboardPage() {
 
             <Card className="border-border/50">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Favoritos</CardTitle>
-                <Heart className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-sm font-medium">Total</CardTitle>
+                <Calendar className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{favoriteShops.length}</div>
-                <p className="text-xs text-muted-foreground">Barbearias salvas</p>
+                <div className="text-2xl font-bold">{bookings.length}</div>
+                <p className="text-xs text-muted-foreground">Total de agendamentos</p>
               </CardContent>
             </Card>
           </div>
@@ -145,7 +202,7 @@ export default function ClientDashboardPage() {
                                       <h3 className="font-semibold text-lg mb-1">{barbershop.name}</h3>
                                       <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
                                         <MapPin className="h-4 w-4" />
-                                        <span>{barbershop.address}</span>
+                                        <span>{barbershop.address.fullAddress}</span>
                                       </div>
                                     </div>
                                     {getStatusBadge(booking.status)}
@@ -269,53 +326,10 @@ export default function ClientDashboardPage() {
                   <CardDescription>Suas barbearias preferidas</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {favoriteShops.length === 0 ? (
-                    <p className="text-center text-muted-foreground py-4 text-sm">Nenhum favorito ainda.</p>
-                  ) : (
-                    favoriteShops.map((shop) => (
-                      <div key={shop.id} className="space-y-3">
-                        <div className="aspect-video relative overflow-hidden rounded-lg bg-muted">
-                          <img
-                            src={shop.images[0] || "/placeholder.svg"}
-                            alt={shop.name}
-                            className="object-cover w-full h-full"
-                          />
-                        </div>
-                        <div>
-                          <h4 className="font-semibold mb-1">{shop.name}</h4>
-                          <div className="flex items-center gap-2 mb-2">
-                            <div className="flex items-center gap-1">
-                              <Star className="h-4 w-4 fill-primary text-primary" />
-                              <span className="text-sm font-semibold">{shop.rating}</span>
-                            </div>
-                            <span className="text-xs text-muted-foreground">({shop.reviewCount})</span>
-                          </div>
-                          <Button asChild className="w-full" size="sm">
-                            <Link href={`/booking/${shop.id}`}>Agendar</Link>
-                          </Button>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Quick Actions */}
-              <Card className="border-border/50">
-                <CardHeader>
-                  <CardTitle>Ações Rápidas</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <Button asChild className="w-full bg-transparent" variant="outline">
+                  <Button asChild className="w-full">
                     <Link href="/map">
                       <Search className="h-4 w-4 mr-2" />
                       Buscar Barbearias
-                    </Link>
-                  </Button>
-                  <Button asChild className="w-full bg-transparent" variant="outline">
-                    <Link href="/client/favorites">
-                      <Heart className="h-4 w-4 mr-2" />
-                      Ver Favoritos
                     </Link>
                   </Button>
                 </CardContent>

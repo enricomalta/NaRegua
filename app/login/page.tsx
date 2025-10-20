@@ -1,35 +1,77 @@
 "use client"
 
 import type React from "react"
-
-import { useState } from "react"
+import { Suspense } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Scissors } from "lucide-react"
+import { useAuth } from "@/lib/auth-context"
+import { signInUser } from "@/lib/firebase-service"
+import { useToast } from "@/hooks/use-toast"
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const { user, login } = useAuth()
+  const { toast } = useToast()
+  
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+
+  const redirectPath = searchParams.get('redirect') || null
+
+  // Se já está logado, redirecionar
+  useEffect(() => {
+    if (user) {
+      const path = redirectPath || 
+        (user.role === "barber" ? "/barber/dashboard" :
+         user.role === "admin" ? "/admin/dashboard" :
+         "/client/dashboard")
+      router.push(path)
+    }
+  }, [user, router, redirectPath])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
+    setError("")
 
-    // Mock login - in production, this would call your auth API
-    setTimeout(() => {
-      // For demo purposes, redirect based on email
-      if (email.includes("barber")) {
-        router.push("/barber/dashboard")
-      } else {
-        router.push("/client/dashboard")
-      }
-    }, 1000)
+    try {
+      const userData = await signInUser(email, password)
+      
+      // Usar o método login do contexto que gera o JWT
+      login(userData)
+      
+      toast({
+        title: "Login realizado com sucesso!",
+        description: `Bem-vindo, ${userData.name}!`
+      })
+
+      // Redirect based on user role or redirect parameter
+      const path = redirectPath || 
+        (userData.role === "barber" ? "/barber/dashboard" :
+         userData.role === "admin" ? "/admin/dashboard" :
+         "/client/dashboard")
+      
+      router.push(path)
+    } catch (error: any) {
+      console.error("Login error:", error)
+      setError("Email ou senha incorretos. Tente novamente.")
+      toast({
+        title: "Erro no login",
+        description: "Email ou senha incorretos. Tente novamente.",
+        variant: "destructive"
+      })
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -45,6 +87,12 @@ export default function LoginPage() {
           <CardDescription>Entre com sua conta para continuar</CardDescription>
         </CardHeader>
         <CardContent>
+          {error && (
+            <div className="mb-4 p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
+              {error}
+            </div>
+          )}
+          
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
@@ -88,5 +136,13 @@ export default function LoginPage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div>Carregando...</div>}>
+      <LoginContent />
+    </Suspense>
   )
 }

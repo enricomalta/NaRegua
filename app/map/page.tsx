@@ -1,26 +1,44 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { Header } from "@/components/header"
 import { BarbershopCard } from "@/components/map-view"
 import { LeafletMap } from "@/components/leaflet-map"
 import { BarbershopFilters } from "@/components/barbershop-filters"
-import { mockBarbershops } from "@/lib/mock-data"
+import { getBarbershops } from "@/lib/firebase-service"
 import type { Barbershop } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { SlidersHorizontal } from "lucide-react"
 
 export default function MapPage() {
+  const [barbershops, setBarbershops] = useState<Barbershop[]>([])
+  const [loading, setLoading] = useState(true)
   const [selectedBarbershop, setSelectedBarbershop] = useState<Barbershop | null>(null)
   const [maxDistance, setMaxDistance] = useState(10)
   const [minRating, setMinRating] = useState(0)
   const [maxPrice, setMaxPrice] = useState(200)
   const [sortBy, setSortBy] = useState("rating")
 
+  // Load barbershops from Firebase
+  useEffect(() => {
+    const loadBarbershops = async () => {
+      try {
+        const data = await getBarbershops()
+        setBarbershops(data)
+      } catch (error) {
+        console.error("Erro ao carregar barbearias:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadBarbershops()
+  }, [])
+
   // Filter and sort barbershops
   const filteredBarbershops = useMemo(() => {
-    const filtered = mockBarbershops.filter((shop) => {
+    const filtered = barbershops.filter((shop) => {
       const meetsRating = shop.rating >= minRating
       const meetsPrice = shop.services.some((service) => service.price <= maxPrice)
       return meetsRating && meetsPrice
@@ -41,7 +59,18 @@ export default function MapPage() {
     })
 
     return filtered
-  }, [maxDistance, minRating, maxPrice, sortBy])
+  }, [barbershops, maxDistance, minRating, maxPrice, sortBy])
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <Header />
+        <main className="flex-1 pt-16 flex items-center justify-center">
+          <p className="text-muted-foreground">Carregando barbearias...</p>
+        </main>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -55,7 +84,7 @@ export default function MapPage() {
               barbershops={filteredBarbershops}
               onSelectBarbershop={setSelectedBarbershop}
               selectedBarbershop={selectedBarbershop}
-              center={{ lat: -23.5505, lng: -46.6333 }}
+              center={{ lat: -21.7545, lng: -43.4393 }}
               zoom={13}
             />
 

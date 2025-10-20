@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Scissors, User } from "lucide-react"
+import { signUpUser } from "@/lib/firebase-service"
 import type { UserRole } from "@/lib/types"
 
 export default function SignupPage() {
@@ -21,19 +22,33 @@ export default function SignupPage() {
   const [password, setPassword] = useState("")
   const [phone, setPhone] = useState("")
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
+    setError("")
 
-    // Mock signup - in production, this would call your auth API
-    setTimeout(() => {
+    try {
+      await signUpUser(email, password, {
+        name,
+        email,
+        role,
+        phone,
+      })
+
+      // Redirect based on role
       if (role === "barber") {
         router.push("/barber/setup")
       } else {
         router.push("/client/dashboard")
       }
-    }, 1000)
+    } catch (error: any) {
+      console.error("Signup error:", error)
+      setError(error.message || "Erro ao criar conta. Tente novamente.")
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -69,6 +84,12 @@ export default function SignupPage() {
               </p>
             </TabsContent>
           </Tabs>
+
+          {error && (
+            <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
+              {error}
+            </div>
+          )}
 
           <form onSubmit={handleSignup} className="space-y-4">
             <div className="space-y-2">

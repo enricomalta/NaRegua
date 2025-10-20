@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Header } from "@/components/header"
 import { Button } from "@/components/ui/button"
@@ -11,6 +11,11 @@ import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Plus, X } from "lucide-react"
+import { useAuth } from "@/lib/auth-context"
+import { createBarbershopWithOwner } from "@/lib/firebase-service"
+import { getAddressByZipCode, getCoordinatesByZipCode } from "@/lib/geolocation-utils"
+import { RobustMap } from "@/components/robust-map"
+import { SimpleLocationPicker } from "@/components/simple-location-picker"
 import type { Service, WorkingHours } from "@/lib/types"
 
 const daysOfWeek = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const
@@ -18,13 +23,26 @@ const dayNames = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "
 
 export default function BarberSetupPage() {
   const router = useRouter()
+  const { user, firebaseUser, loading: authLoading } = useAuth()
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
 
   // Basic Info
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
-  const [address, setAddress] = useState("")
   const [phone, setPhone] = useState("")
+  
+  // Address Info
+  const [street, setStreet] = useState("")
+  const [number, setNumber] = useState("")
+  const [neighborhood, setNeighborhood] = useState("")
+  const [city, setCity] = useState("")
+  const [state, setState] = useState("")
+  const [zipCode, setZipCode] = useState("")
+  
+  // Location
+  const [latitude, setLatitude] = useState(-21.7545)
+  const [longitude, setLongitude] = useState(-43.4393)
 
   // Services
   const [services, setServices] = useState<Service[]>([{ id: "1", name: "", description: "", price: 0, duration: 30 }])
@@ -49,6 +67,58 @@ export default function BarberSetupPage() {
     saturday: true,
     sunday: false,
   })
+
+  const [useMapFallback, setUseMapFallback] = useState(false)
+  const [mapErrorMessage, setMapErrorMessage] = useState<string | null>(null)
+  const [mapRetryKey, setMapRetryKey] = useState(0)
+
+  useEffect(() => {
+    if (!authLoading) {
+      if (!user) {
+        router.replace("/login")
+      } else if (user.role !== "barber") {
+        router.replace("/")
+      }
+    }
+  }, [authLoading, user, router])
+
+  if (authLoading || !user || user?.role !== "barber") {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p>Carregando...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Buscar endereço automaticamente quando CEP for preenchido
+  const handleZipCodeChange = async (value: string) => {
+    setZipCode(value)
+    
+    // Se o CEP tem 8 dígitos, buscar endereço
+    const cleanZip = value.replace(/\D/g, '')
+    if (cleanZip.length === 8) {
+      try {
+        const addressData = await getAddressByZipCode(cleanZip)
+        if (addressData) {
+          setStreet(addressData.street)
+          setNeighborhood(addressData.neighborhood)
+          setCity(addressData.city)
+          setState(addressData.state)
+          
+          // Buscar coordenadas também
+          const coordinates = await getCoordinatesByZipCode(cleanZip)
+          if (coordinates) {
+            setLatitude(coordinates.lat)
+            setLongitude(coordinates.lng)
+          }
+        }
+      } catch (error) {
+        console.error('Erro ao buscar CEP:', error)
+      }
+    }
+  }
 
   const addService = () => {
     setServices([...services, { id: Date.now().toString(), name: "", description: "", price: 0, duration: 30 }])
@@ -82,11 +152,60 @@ export default function BarberSetupPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
+    setError("")
 
-    // Mock submission - in production, this would call your API
-    setTimeout(() => {
+    if (!user) {
+      setError("Usuário não autenticado")
+      setLoading(false)
+      return
+    }
+
+    try {
+      // Criar endereço completo formatado
+      const fullAddress = `${street}, ${number}, ${neighborhood}, ${city}, ${state} - ${zipCode}`
+      
+      const barbershopData = {
+        name,
+        description,
+        ownerId: firebaseUser?.uid || "", // ID do usuário logado
+        address: {
+          street,
+          number,
+          neighborhood,
+          city,
+          state,
+          zipCode,
+          fullAddress
+        },
+        latitude,
+        longitude,
+        phone,
+        images: [], // Inicialmente vazio, pode ser adicionado depois
+        rating: 0,
+        reviewCount: 0,
+        services: services.filter(s => s.name.trim() !== ""), // Filtrar serviços vazios
+        workingHours,
+        createdAt: new Date(),
+      }
+
+      // Dados do usuário para associar como owner
+      const ownerData = {
+        name: firebaseUser?.displayName || user?.name || firebaseUser?.email || "Nome não informado",
+        email: firebaseUser?.email || "",
+        avatar: firebaseUser?.photoURL || undefined,
+        phone: firebaseUser?.phoneNumber || undefined
+      }
+
+      const barbershopId = await createBarbershopWithOwner(barbershopData, firebaseUser?.uid || "", ownerData)
+      console.log("Barbearia criada com ID:", barbershopId)
+      
       router.push("/barber/dashboard")
-    }, 1500)
+    } catch (error: any) {
+      console.error("Erro ao criar barbearia:", error)
+      setError(error.message || "Erro ao criar barbearia. Tente novamente.")
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -99,6 +218,12 @@ export default function BarberSetupPage() {
             <h1 className="text-3xl font-bold mb-2">Cadastrar Barbearia</h1>
             <p className="text-muted-foreground">Preencha as informações da sua barbearia para começar</p>
           </div>
+
+          {error && (
+            <div className="mb-6 p-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
+              {error}
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Basic Information */}
@@ -131,15 +256,74 @@ export default function BarberSetupPage() {
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="address">Endereço Completo *</Label>
-                  <Input
-                    id="address"
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    placeholder="Rua, número, bairro, cidade, estado"
-                    required
-                  />
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="street">Rua/Avenida *</Label>
+                    <Input
+                      id="street"
+                      value={street}
+                      onChange={(e) => setStreet(e.target.value)}
+                      placeholder="Ex: Rua das Flores"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="number">Número *</Label>
+                    <Input
+                      id="number"
+                      value={number}
+                      onChange={(e) => setNumber(e.target.value)}
+                      placeholder="Ex: 123"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="neighborhood">Bairro *</Label>
+                    <Input
+                      id="neighborhood"
+                      value={neighborhood}
+                      onChange={(e) => setNeighborhood(e.target.value)}
+                      placeholder="Ex: Centro"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="zipCode">CEP * <span className="text-xs text-muted-foreground">(preencha para busca automática)</span></Label>
+                    <Input
+                      id="zipCode"
+                      value={zipCode}
+                      onChange={(e) => handleZipCodeChange(e.target.value)}
+                      placeholder="Ex: 01234-567"
+                      maxLength={9}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="city">Cidade *</Label>
+                    <Input
+                      id="city"
+                      value={city}
+                      onChange={(e) => setCity(e.target.value)}
+                      placeholder="Ex: São Paulo"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="state">Estado *</Label>
+                    <Input
+                      id="state"
+                      value={state}
+                      onChange={(e) => setState(e.target.value)}
+                      placeholder="Ex: SP"
+                      required
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-2">
@@ -155,6 +339,73 @@ export default function BarberSetupPage() {
                 </div>
               </CardContent>
             </Card>
+
+            <div className="space-y-3">
+              {useMapFallback ? (
+                <>
+                  <SimpleLocationPicker
+                    onLocationChange={(lat: number, lng: number) => {
+                      setLatitude(lat)
+                      setLongitude(lng)
+                    }}
+                    initialLat={latitude}
+                    initialLng={longitude}
+                    address={`${street} ${number}, ${neighborhood}, ${city}, ${state}`}
+                  />
+                  {mapErrorMessage && (
+                    <p className="text-xs text-destructive">
+                      {`Não foi possível carregar o mapa interativo: ${mapErrorMessage}`}
+                    </p>
+                  )}
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setUseMapFallback(false)
+                        setMapErrorMessage(null)
+                        setMapRetryKey((prev) => prev + 1)
+                      }}
+                    >
+                      Tentar carregar o mapa interativo novamente
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <RobustMap
+                    key={mapRetryKey}
+                    onLocationChange={(lat: number, lng: number) => {
+                      setLatitude(lat)
+                      setLongitude(lng)
+                    }}
+                    initialLat={latitude}
+                    initialLng={longitude}
+                    address={`${street} ${number}, ${neighborhood}, ${city}, ${state}`}
+                    onReady={() => {
+                      setUseMapFallback(false)
+                      setMapErrorMessage(null)
+                    }}
+                    onError={(error) => {
+                      setMapErrorMessage(typeof error === "string" ? error : error.message)
+                      setUseMapFallback(true)
+                    }}
+                  />
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setUseMapFallback(true)
+                        setMapErrorMessage(null)
+                      }}
+                    >
+                      Preferir inserir coordenadas manualmente
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
 
             {/* Services */}
             <Card className="border-border/50">

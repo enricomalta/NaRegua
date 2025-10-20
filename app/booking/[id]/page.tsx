@@ -1,6 +1,6 @@
 "use client"
 
-import { use, useState } from "react"
+import { use, useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Header } from "@/components/header"
 import { Button } from "@/components/ui/button"
@@ -8,25 +8,83 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Calendar } from "@/components/ui/calendar"
-import { mockBarbershops } from "@/lib/mock-data"
+import { useAuth } from "@/lib/auth-context"
+import { getBarbershopById, createBooking, getBookingsByBarbershop } from "@/lib/firebase-service"
 import { generateTimeSlots, getDayOfWeek, formatDate } from "@/lib/utils"
 import { CalendarIcon, Clock, Scissors, MapPin, ArrowLeft } from "lucide-react"
 import { notFound } from "next/navigation"
 import Link from "next/link"
-import type { Service } from "@/lib/types"
+import { useToast } from "@/hooks/use-toast"
+import type { Service, Barbershop, Booking } from "@/lib/types"
 
 export default function BookingPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
-  const barbershop = mockBarbershops.find((b) => b.id === id)
-
+  const { user } = useAuth()
+  const { toast } = useToast()
+  
+  const [barbershop, setBarbershop] = useState<Barbershop | null>(null)
+  const [existingBookings, setExistingBookings] = useState<Booking[]>([])
+  const [loading, setLoading] = useState(true)
   const [selectedService, setSelectedService] = useState<Service | null>(null)
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined)
   const [selectedTime, setSelectedTime] = useState<string>("")
-  const [loading, setLoading] = useState(false)
+  const [bookingLoading, setBookingLoading] = useState(false)
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [barbershopData, bookingsData] = await Promise.all([
+          getBarbershopById(id),
+          getBookingsByBarbershop(id)
+        ])
+        
+        if (!barbershopData) {
+          notFound()
+          return
+        }
+        
+        setBarbershop(barbershopData)
+        setExistingBookings(bookingsData)
+      } catch (error) {
+        console.error("Erro ao carregar dados:", error)
+        toast({
+          title: "Erro",
+          description: "Não foi possível carregar os dados da barbearia.",
+          variant: "destructive"
+        })
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadData()
+  }, [id, toast])
+
+  if (loading) {
+    return (
+      <div className="min-h-screen">
+        <Header />
+        <main className="pt-16 flex items-center justify-center">
+          <p className="text-muted-foreground">Carregando...</p>
+        </main>
+      </div>
+    )
+  }
 
   if (!barbershop) {
     notFound()
+  }
+
+  // Check if user is authenticated
+  if (!user) {
+    toast({
+      title: "Login necessário",
+      description: "Você precisa estar logado para fazer um agendamento.",
+      variant: "destructive"
+    })
+    router.push("/login")
+    return null
   }
 
   // Generate available time slots based on selected date and service
@@ -36,21 +94,57 @@ export default function BookingPage({ params }: { params: Promise<{ id: string }
           const dayOfWeek = getDayOfWeek(selectedDate)
           const workingHours = barbershop.workingHours[dayOfWeek]
           if (workingHours.length === 0) return []
-          return generateTimeSlots(workingHours[0].start, workingHours[0].end, selectedService.duration)
+          
+          // Generate all possible time slots
+          const allSlots = generateTimeSlots(workingHours[0].start, workingHours[0].end, selectedService.duration)
+          
+          // Filter out booked slots
+          const bookedTimes = existingBookings
+            .filter(booking => {
+              const bookingDate = booking.date.toDateString()
+              const selectedDateStr = selectedDate.toDateString()
+              return bookingDate === selectedDateStr && booking.status !== 'cancelled'
+            })
+            .map(booking => booking.time)
+          
+          return allSlots.filter(slot => !bookedTimes.includes(slot))
         })()
       : []
 
   const handleBooking = async () => {
-    if (!selectedService || !selectedDate || !selectedTime) return
+    if (!selectedService || !selectedDate || !selectedTime || !user) return
 
-    setLoading(true)
+    setBookingLoading(true)
 
-    // Mock booking - in production, this would call your API
-    setTimeout(() => {
-      router.push(
-        `/booking/confirmation?barbershop=${barbershop.name}&service=${selectedService.name}&date=${selectedDate.toISOString()}&time=${selectedTime}`,
-      )
-    }, 1000)
+    try {
+      const bookingData = {
+        clientId: user.id,
+        barbershopId: id,
+        serviceId: selectedService.id,
+        date: selectedDate,
+        time: selectedTime,
+        status: "pending" as const,
+        createdAt: new Date()
+      }
+
+      const bookingId = await createBooking(bookingData)
+      
+      toast({
+        title: "Agendamento criado!",
+        description: "Seu agendamento foi criado com sucesso. Aguarde a confirmação."
+      })
+
+      router.push(`/booking/confirmation?id=${bookingId}`)
+    } catch (error) {
+      console.error("Erro ao criar agendamento:", error)
+      toast({
+        title: "Erro ao agendar",
+        description: "Não foi possível criar o agendamento. Tente novamente.",
+        variant: "destructive"
+      })
+    } finally {
+      setBookingLoading(false)
+    }
   }
 
   const isBookingComplete = selectedService && selectedDate && selectedTime
@@ -235,8 +329,8 @@ export default function BookingPage({ params }: { params: Promise<{ id: string }
                     </div>
                   )}
 
-                  <Button onClick={handleBooking} disabled={!isBookingComplete || loading} className="w-full">
-                    {loading ? "Confirmando..." : "Confirmar Agendamento"}
+                  <Button onClick={handleBooking} disabled={!isBookingComplete || bookingLoading} className="w-full">
+                    {bookingLoading ? "Confirmando..." : "Confirmar Agendamento"}
                   </Button>
 
                   {!isBookingComplete && (

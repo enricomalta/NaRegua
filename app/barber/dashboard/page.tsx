@@ -1,34 +1,213 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Header } from "@/components/header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { mockBarbershops, mockBookings, mockReviews } from "@/lib/mock-data"
-import { Calendar, DollarSign, Star, Clock, CheckCircle2, XCircle, Settings, Eye } from "lucide-react"
+import { useAuth } from "@/lib/auth-context"
+import { useRoleProtection } from "@/hooks/use-role-protection"
+import { usePermissions } from "@/hooks/use-permissions"
+import { getBarbershops, getBookingsByBarbershop, getReviewsByBarbershop } from "@/lib/firebase-service"
+import { Calendar, DollarSign, Star, Clock, CheckCircle2, XCircle, Settings, Eye, AlertTriangle } from "lucide-react"
 import Link from "next/link"
 import { formatDate } from "@/lib/utils"
+import type { Barbershop, Booking, Review } from "@/lib/types"
+import { useToast } from "@/hooks/use-toast"
 
 export default function BarberDashboardPage() {
-  // Mock: In production, get the logged-in barber's ID
-  const barberId = "barber1"
-  const barbershop = mockBarbershops.find((b) => b.ownerId === barberId)
-  const bookings = mockBookings.filter((b) => b.barbershopId === barbershop?.id)
-  const reviews = mockReviews.filter((r) => r.barbershopId === barbershop?.id)
-
+  // Todos os hooks devem ser chamados sempre na mesma ordem
+  const { user, authUser } = useAuth()
+  const { toast } = useToast()
+  const { isAuthorized, loading: authLoading } = useRoleProtection({
+    requiredRoles: ['barber', 'admin'],
+    requireAuth: true
+  })
+  const { canRead, canUpdate, validateUser } = usePermissions()
+  
+  // Estados
+  const [barbershop, setBarbershop] = useState<Barbershop | null>(null)
+  const [bookings, setBookings] = useState<Booking[]>([])
+  const [reviews, setReviews] = useState<Review[]>([])
+  const [dataLoading, setDataLoading] = useState(true)
+  const [error, setError] = useState("")
   const [selectedTab, setSelectedTab] = useState("overview")
+  const [permissions, setPermissions] = useState({
+    canReadBookings: false,
+    canUpdateBookings: false,
+    canReadReviews: false
+  })
 
+  // Verificar permissões ao carregar
+  useEffect(() => {
+    const checkPermissions = async () => {
+      if (!authUser || authLoading) return
+
+      try {
+        // Validar usuário via API
+        const validatedUser = await validateUser(authUser.userId)
+        if (!validatedUser) {
+          setError("Usuário não encontrado ou inválido")
+          return
+        }
+
+        // Verificar permissões específicas
+        const [bookingRead, bookingUpdate, reviewRead] = await Promise.all([
+          canRead('booking'),
+          canUpdate('booking'),
+          canRead('review')
+        ])
+
+        setPermissions({
+          canReadBookings: bookingRead.hasPermission,
+          canUpdateBookings: bookingUpdate.hasPermission,
+          canReadReviews: reviewRead.hasPermission
+        })
+
+        if (!bookingRead.hasPermission) {
+          toast({
+            title: "Acesso limitado",
+            description: "Você não tem permissão para visualizar agendamentos",
+            variant: "destructive"
+          })
+        }
+
+      } catch (error) {
+        console.error("Error checking permissions:", error)
+        setError("Erro ao verificar permissões")
+      }
+    }
+
+    checkPermissions()
+  }, [authUser?.userId, authLoading]) // Apenas authUser.userId e authLoading como dependências
+
+  // Carregar dados da barbearia com verificação de permissões
+  useEffect(() => {
+    const loadData = async () => {
+      if (!user || !isAuthorized) return
+
+      try {
+        setDataLoading(true)
+        
+        // Buscar barbearias do usuário
+        const allBarbershops = await getBarbershops()
+        const userBarbershop = allBarbershops.find((b) => b.ownerId === user.id)
+        
+        if (userBarbershop) {
+          setBarbershop(userBarbershop)
+          
+          // Carregar dados apenas se tiver permissão
+          const promises = []
+          
+          if (permissions.canReadBookings) {
+            promises.push(getBookingsByBarbershop(userBarbershop.id))
+          } else {
+            promises.push(Promise.resolve([]))
+          }
+          
+          if (permissions.canReadReviews) {
+            promises.push(getReviewsByBarbershop(userBarbershop.id))
+          } else {
+            promises.push(Promise.resolve([]))
+          }
+          
+          const [barbershopBookings, barbershopReviews] = await Promise.all(promises)
+          
+          setBookings(barbershopBookings as Booking[])
+          setReviews(barbershopReviews as Review[])
+        }
+      } catch (error) {
+        console.error("Erro ao carregar dados:", error)
+        setError("Erro ao carregar dados da barbearia")
+      } finally {
+        setDataLoading(false)
+      }
+    }
+
+    if (user && isAuthorized && !authLoading && (permissions.canReadBookings || permissions.canReadReviews)) {
+      loadData()
+    } else if (!authLoading && isAuthorized) {
+      setDataLoading(false)
+    }
+  }, [user, isAuthorized, authLoading, permissions])
+
+  // Loading inicial
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    )
+  }
+
+  // Usuário não autorizado
+  if (!isAuthorized) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="container mx-auto px-4 py-24">
+          <div className="max-w-2xl mx-auto text-center">
+            <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
+            <h1 className="text-2xl font-bold mb-2">Acesso Negado</h1>
+            <p className="text-muted-foreground mb-6">
+              Você não tem permissão para acessar esta página.
+            </p>
+            <Button asChild>
+              <Link href="/">Voltar ao Início</Link>
+            </Button>
+          </div>
+        </main>
+      </div>
+    )
+  }
+
+  // Erro
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="container mx-auto px-4 py-24">
+          <div className="max-w-2xl mx-auto text-center">
+            <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
+            <h1 className="text-2xl font-bold mb-2">Erro de Acesso</h1>
+            <p className="text-muted-foreground mb-6">{error}</p>
+            <Button asChild>
+              <Link href="/">Voltar ao Início</Link>
+            </Button>
+          </div>
+        </main>
+      </div>
+    )
+  }
+
+  // Loading dos dados
+  if (dataLoading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="container mx-auto px-4 py-24">
+          <div className="flex items-center justify-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          </div>
+        </main>
+      </div>
+    )
+  }
+
+  // Nenhuma barbearia
   if (!barbershop) {
     return (
-      <div className="min-h-screen">
+      <div className="min-h-screen bg-background">
         <Header />
-        <main className="pt-16 pb-12">
-          <div className="container mx-auto px-4 text-center">
-            <p className="text-muted-foreground">Você ainda não cadastrou uma barbearia.</p>
-            <Button asChild className="mt-4">
+        <main className="container mx-auto px-4 py-24">
+          <div className="max-w-2xl mx-auto text-center">
+            <h1 className="text-2xl font-bold mb-2">Nenhuma Barbearia Encontrada</h1>
+            <p className="text-muted-foreground mb-6">
+              Você ainda não possui uma barbearia cadastrada.
+            </p>
+            <Button asChild>
               <Link href="/barber/setup">Cadastrar Barbearia</Link>
             </Button>
           </div>
@@ -37,19 +216,16 @@ export default function BarberDashboardPage() {
     )
   }
 
-  // Calculate statistics
-  const todayBookings = bookings.filter((b) => {
+  // Cálculos de estatísticas
+  const todayBookings = bookings.filter((b: Booking) => {
     const today = new Date()
-    return (
-      b.date.getDate() === today.getDate() &&
-      b.date.getMonth() === today.getMonth() &&
-      b.date.getFullYear() === today.getFullYear()
-    )
+    const bookingDate = new Date(b.date)
+    return bookingDate.toDateString() === today.toDateString()
   })
 
-  const upcomingBookings = bookings.filter((b) => b.status === "confirmed" || b.status === "pending")
-  const completedBookings = bookings.filter((b) => b.status === "completed")
-  const totalRevenue = completedBookings.reduce((sum, booking) => {
+  const upcomingBookings = bookings.filter((b: Booking) => b.status === "confirmed" || b.status === "pending")
+  const completedBookings = bookings.filter((b: Booking) => b.status === "completed")
+  const totalRevenue = completedBookings.reduce((sum: number, booking: Booking) => {
     const service = barbershop.services.find((s) => s.id === booking.serviceId)
     return sum + (service?.price || 0)
   }, 0)
@@ -58,32 +234,35 @@ export default function BarberDashboardPage() {
     return barbershop.services.find((s) => s.id === serviceId)?.name || "Serviço"
   }
 
+  const getClientName = (clientId: string) => {
+    // TODO: Implementar busca real do nome do cliente
+    return `Cliente ${clientId.slice(0, 8)}`
+  }
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "confirmed":
-        return <Badge className="bg-primary/10 text-primary hover:bg-primary/20">Confirmado</Badge>
-      case "pending":
-        return <Badge variant="secondary">Pendente</Badge>
+        return <Badge className="bg-blue-100 text-blue-800">Confirmado</Badge>
       case "completed":
-        return <Badge className="bg-green-500/10 text-green-500 hover:bg-green-500/20">Concluído</Badge>
+        return <Badge className="bg-green-100 text-green-800">Concluído</Badge>
       case "cancelled":
-        return <Badge variant="destructive">Cancelado</Badge>
+        return <Badge className="bg-red-100 text-red-800">Cancelado</Badge>
       default:
-        return <Badge variant="outline">{status}</Badge>
+        return <Badge variant="outline">Pendente</Badge>
     }
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-background">
       <Header />
-
-      <main className="pt-16 pb-12">
-        <div className="container mx-auto px-4">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-8">
+      <main className="container mx-auto px-4 py-24">
+        <div className="mb-8">
+          <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold mb-2">Dashboard</h1>
-              <p className="text-muted-foreground">{barbershop.name}</p>
+              <h1 className="text-3xl font-bold">Dashboard - {barbershop.name}</h1>
+              <p className="text-muted-foreground mt-2">
+                Gerencie sua barbearia e acompanhe suas estatísticas
+              </p>
             </div>
             <div className="flex gap-2">
               <Button variant="outline" asChild>
@@ -92,233 +271,271 @@ export default function BarberDashboardPage() {
                   Ver Perfil
                 </Link>
               </Button>
-              <Button variant="outline" asChild>
-                <Link href="/barber/settings">
+              <Button asChild>
+                <Link href="/barber/manage">
                   <Settings className="h-4 w-4 mr-2" />
-                  Configurações
+                  Gerenciar
                 </Link>
               </Button>
             </div>
           </div>
+        </div>
 
-          {/* Stats Cards */}
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <Card className="border-border/50">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Agendamentos Hoje</CardTitle>
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{todayBookings.length}</div>
-                <p className="text-xs text-muted-foreground">Horários marcados para hoje</p>
-              </CardContent>
-            </Card>
+        {/* Cards de Estatísticas */}
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-8">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Agendamentos Hoje</CardTitle>
+              <Calendar className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{permissions.canReadBookings ? todayBookings.length : '-'}</div>
+              <p className="text-xs text-muted-foreground">
+                agendamentos para hoje
+              </p>
+            </CardContent>
+          </Card>
 
-            <Card className="border-border/50">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Próximos Agendamentos</CardTitle>
-                <Clock className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{upcomingBookings.length}</div>
-                <p className="text-xs text-muted-foreground">Confirmados e pendentes</p>
-              </CardContent>
-            </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Próximos</CardTitle>
+              <Clock className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{permissions.canReadBookings ? upcomingBookings.length : '-'}</div>
+              <p className="text-xs text-muted-foreground">
+                agendamentos confirmados
+              </p>
+            </CardContent>
+          </Card>
 
-            <Card className="border-border/50">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Avaliação</CardTitle>
-                <Star className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{barbershop.rating}</div>
-                <p className="text-xs text-muted-foreground">{barbershop.reviewCount} avaliações</p>
-              </CardContent>
-            </Card>
-
-            <Card className="border-border/50">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Receita Total</CardTitle>
-                <DollarSign className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">R$ {totalRevenue}</div>
-                <p className="text-xs text-muted-foreground">{completedBookings.length} serviços concluídos</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Tabs */}
-          <Tabs value={selectedTab} onValueChange={setSelectedTab}>
-            <TabsList className="mb-6">
-              <TabsTrigger value="overview">Visão Geral</TabsTrigger>
-              <TabsTrigger value="bookings">Agendamentos</TabsTrigger>
-              <TabsTrigger value="reviews">Avaliações</TabsTrigger>
-            </TabsList>
-
-            {/* Overview Tab */}
-            <TabsContent value="overview" className="space-y-6">
-              <div className="grid lg:grid-cols-2 gap-6">
-                {/* Today's Bookings */}
-                <Card className="border-border/50">
-                  <CardHeader>
-                    <CardTitle>Agendamentos de Hoje</CardTitle>
-                    <CardDescription>Horários marcados para hoje</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {todayBookings.length === 0 ? (
-                      <p className="text-center text-muted-foreground py-8">Nenhum agendamento para hoje.</p>
-                    ) : (
-                      <div className="space-y-4">
-                        {todayBookings.map((booking) => (
-                          <div
-                            key={booking.id}
-                            className="flex items-center justify-between p-4 border border-border rounded-lg"
-                          >
-                            <div>
-                              <p className="font-semibold">{booking.time}</p>
-                              <p className="text-sm text-muted-foreground">{getServiceName(booking.serviceId)}</p>
-                            </div>
-                            {getStatusBadge(booking.status)}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* Recent Reviews */}
-                <Card className="border-border/50">
-                  <CardHeader>
-                    <CardTitle>Avaliações Recentes</CardTitle>
-                    <CardDescription>Últimas avaliações recebidas</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {reviews.length === 0 ? (
-                      <p className="text-center text-muted-foreground py-8">Nenhuma avaliação ainda.</p>
-                    ) : (
-                      <div className="space-y-4">
-                        {reviews.slice(0, 3).map((review) => (
-                          <div key={review.id} className="flex items-start gap-3">
-                            <Avatar className="h-10 w-10">
-                              <AvatarImage src={review.clientAvatar || "/placeholder.svg"} />
-                              <AvatarFallback>{review.clientName[0]}</AvatarFallback>
-                            </Avatar>
-                            <div className="flex-1">
-                              <div className="flex items-center justify-between mb-1">
-                                <p className="font-semibold text-sm">{review.clientName}</p>
-                                <div className="flex items-center gap-1">
-                                  {Array.from({ length: review.rating }).map((_, i) => (
-                                    <Star key={i} className="h-3 w-3 fill-primary text-primary" />
-                                  ))}
-                                </div>
-                              </div>
-                              <p className="text-xs text-muted-foreground line-clamp-2">{review.comment}</p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Receita Total</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {permissions.canReadBookings ? `R$ ${totalRevenue.toFixed(2)}` : '-'}
               </div>
-            </TabsContent>
+              <p className="text-xs text-muted-foreground">
+                de serviços concluídos
+              </p>
+            </CardContent>
+          </Card>
 
-            {/* Bookings Tab */}
-            <TabsContent value="bookings">
-              <Card className="border-border/50">
-                <CardHeader>
-                  <CardTitle>Todos os Agendamentos</CardTitle>
-                  <CardDescription>Gerencie seus agendamentos</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {bookings.length === 0 ? (
-                    <p className="text-center text-muted-foreground py-8">Nenhum agendamento ainda.</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {bookings.map((booking) => (
-                        <div
-                          key={booking.id}
-                          className="flex items-center justify-between p-4 border border-border rounded-lg"
-                        >
-                          <div className="flex-1">
-                            <div className="flex items-center gap-3 mb-2">
-                              <p className="font-semibold">{formatDate(booking.date)}</p>
-                              <span className="text-muted-foreground">•</span>
-                              <p className="text-muted-foreground">{booking.time}</p>
-                            </div>
-                            <p className="text-sm text-muted-foreground">{getServiceName(booking.serviceId)}</p>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Avaliações</CardTitle>
+              <Star className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {permissions.canReadReviews ? barbershop.rating.toFixed(1) : '-'}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {permissions.canReadReviews ? reviews.length : '-'} avaliações
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Tabs de Conteúdo */}
+        <Tabs value={selectedTab} onValueChange={setSelectedTab}>
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="overview">Visão Geral</TabsTrigger>
+            <TabsTrigger value="bookings" disabled={!permissions.canReadBookings}>
+              Agendamentos
+            </TabsTrigger>
+            <TabsTrigger value="reviews" disabled={!permissions.canReadReviews}>
+              Avaliações
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="overview" className="space-y-6">
+            <div className="grid gap-6 md:grid-cols-2">
+              {permissions.canReadBookings && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Agendamentos Recentes</CardTitle>
+                    <CardDescription>Últimos agendamentos da sua barbearia</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {bookings.slice(0, 5).map((booking) => (
+                        <div key={booking.id} className="flex items-center justify-between p-4 border rounded-lg">
+                          <div>
+                            <p className="font-medium">{getClientName(booking.clientId)}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {getServiceName(booking.serviceId)} - {formatDate(booking.date)} às {booking.time}
+                            </p>
                           </div>
-                          <div className="flex items-center gap-3">
-                            {getStatusBadge(booking.status)}
-                            {booking.status === "pending" && (
-                              <div className="flex gap-2">
-                                <Button size="sm" variant="outline" className="h-8 bg-transparent">
-                                  <CheckCircle2 className="h-4 w-4" />
-                                </Button>
-                                <Button size="sm" variant="outline" className="h-8 bg-transparent">
-                                  <XCircle className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            )}
-                          </div>
+                          {getStatusBadge(booking.status)}
                         </div>
                       ))}
+                      
+                      {bookings.length === 0 && (
+                        <p className="text-center text-muted-foreground py-8">
+                          Nenhum agendamento encontrado
+                        </p>
+                      )}
                     </div>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
+                  </CardContent>
+                </Card>
+              )}
 
-            {/* Reviews Tab */}
-            <TabsContent value="reviews">
-              <Card className="border-border/50">
-                <CardHeader>
-                  <CardTitle>Todas as Avaliações</CardTitle>
-                  <CardDescription>Feedback dos seus clientes</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {reviews.length === 0 ? (
-                    <p className="text-center text-muted-foreground py-8">Nenhuma avaliação ainda.</p>
-                  ) : (
-                    <div className="space-y-6">
-                      {reviews.map((review) => (
-                        <div
-                          key={review.id}
-                          className="flex items-start gap-4 pb-6 border-b border-border last:border-0"
-                        >
-                          <Avatar>
-                            <AvatarImage src={review.clientAvatar || "/placeholder.svg"} />
-                            <AvatarFallback>{review.clientName[0]}</AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between mb-2">
-                              <p className="font-semibold">{review.clientName}</p>
-                              <div className="flex items-center gap-1">
-                                {Array.from({ length: 5 }).map((_, i) => (
-                                  <Star
-                                    key={i}
-                                    className={`h-4 w-4 ${
-                                      i < review.rating ? "fill-primary text-primary" : "text-muted"
-                                    }`}
-                                  />
+              {permissions.canReadReviews && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Avaliações Recentes</CardTitle>
+                    <CardDescription>Últimas avaliações dos clientes</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {reviews.slice(0, 5).map((review) => (
+                        <div key={review.id} className="p-4 border rounded-lg">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Avatar className="h-8 w-8">
+                              <AvatarImage src={review.clientAvatar} />
+                              <AvatarFallback>{review.clientName.charAt(0)}</AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <p className="font-medium text-sm">{review.clientName}</p>
+                              <div className="flex items-center">
+                                {Array.from({ length: review.rating }).map((_, i) => (
+                                  <Star key={i} className="h-3 w-3 fill-yellow-400 text-yellow-400" />
                                 ))}
                               </div>
                             </div>
-                            <p className="text-sm text-muted-foreground mb-2">{review.comment}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {review.createdAt.toLocaleDateString("pt-BR")}
-                            </p>
                           </div>
+                          <p className="text-sm text-muted-foreground">{review.comment}</p>
                         </div>
                       ))}
+                      
+                      {reviews.length === 0 && (
+                        <p className="text-center text-muted-foreground py-8">
+                          Nenhuma avaliação encontrada
+                        </p>
+                      )}
                     </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {!permissions.canReadBookings && !permissions.canReadReviews && (
+                <Card className="md:col-span-2">
+                  <CardHeader>
+                    <CardTitle>Acesso Limitado</CardTitle>
+                    <CardDescription>
+                      Você não tem permissão para visualizar dados detalhados
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-muted-foreground">
+                      Entre em contato com o administrador para obter mais permissões.
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="bookings" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Todos os Agendamentos</CardTitle>
+                <CardDescription>Gerencie os agendamentos da sua barbearia</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {bookings.map((booking) => (
+                    <div key={booking.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-4">
+                          <div>
+                            <p className="font-medium">{getClientName(booking.clientId)}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {getServiceName(booking.serviceId)}
+                            </p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-sm font-medium">{formatDate(booking.date)}</p>
+                            <p className="text-sm text-muted-foreground">{booking.time}</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {getStatusBadge(booking.status)}
+                        {permissions.canUpdateBookings && booking.status === "pending" && (
+                          <div className="flex gap-1">
+                            <Button size="sm" variant="outline">
+                              <CheckCircle2 className="h-4 w-4" />
+                            </Button>
+                            <Button size="sm" variant="outline">
+                              <XCircle className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {bookings.length === 0 && (
+                    <p className="text-center text-muted-foreground py-8">
+                      Nenhum agendamento encontrado
+                    </p>
                   )}
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
-        </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="reviews" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Todas as Avaliações</CardTitle>
+                <CardDescription>Veja todas as avaliações da sua barbearia</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-6">
+                  {reviews.map((review) => (
+                    <div key={review.id} className="p-6 border rounded-lg">
+                      <div className="flex items-start gap-4">
+                        <Avatar>
+                          <AvatarImage src={review.clientAvatar} />
+                          <AvatarFallback>{review.clientName.charAt(0)}</AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="font-medium">{review.clientName}</h4>
+                            <span className="text-sm text-muted-foreground">
+                              {formatDate(review.createdAt)}
+                            </span>
+                          </div>
+                          <div className="flex items-center mb-3">
+                            {Array.from({ length: review.rating }).map((_, i) => (
+                              <Star key={i} className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                            ))}
+                            <span className="ml-2 text-sm text-muted-foreground">
+                              ({review.rating}/5)
+                            </span>
+                          </div>
+                          <p className="text-sm">{review.comment}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {reviews.length === 0 && (
+                    <p className="text-center text-muted-foreground py-8">
+                      Nenhuma avaliação encontrada
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </main>
     </div>
   )

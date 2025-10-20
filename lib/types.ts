@@ -1,4 +1,5 @@
 export type UserRole = "client" | "barber" | "admin"
+export type EmployeeRole = "owner" | "manager" | "barber" | "receptionist"
 
 export interface User {
   id: string
@@ -8,6 +9,45 @@ export interface User {
   avatar?: string
   phone?: string
   createdAt: Date
+  // Relação com barbearias onde trabalha
+  employments?: Employment[]
+}
+
+export interface Employment {
+  barbershopId: string
+  barbershopName: string
+  role: EmployeeRole
+  joinedAt: Date
+  isActive: boolean
+  permissions: EmployeePermissions
+}
+
+export interface EmployeePermissions {
+  // Agendamentos
+  viewBookings: boolean
+  createBookings: boolean
+  editBookings: boolean
+  cancelBookings: boolean
+  
+  // Serviços
+  viewServices: boolean
+  createServices: boolean
+  editServices: boolean
+  deleteServices: boolean
+  
+  // Funcionários
+  viewEmployees: boolean
+  inviteEmployees: boolean
+  editEmployees: boolean
+  removeEmployees: boolean
+  
+  // Relatórios e dashboard
+  viewReports: boolean
+  viewRevenue: boolean
+  
+  // Barbearia
+  editBarbershop: boolean
+  manageBarbershop: boolean
 }
 
 export interface Barbershop {
@@ -15,7 +55,15 @@ export interface Barbershop {
   name: string
   description: string
   ownerId: string
-  address: string
+  address: {
+    street: string
+    number: string
+    neighborhood: string
+    city: string
+    state: string
+    zipCode: string
+    fullAddress: string // endereço completo formatado
+  }
   latitude: number
   longitude: number
   phone: string
@@ -25,6 +73,20 @@ export interface Barbershop {
   services: Service[]
   workingHours: WorkingHours
   createdAt: Date
+  // Funcionários da barbearia
+  employees?: BarbershopEmployee[]
+}
+
+export interface BarbershopEmployee {
+  userId: string
+  name: string
+  email: string
+  avatar?: string
+  phone?: string
+  role: EmployeeRole
+  joinedAt: Date
+  isActive: boolean
+  permissions: EmployeePermissions
 }
 
 export interface Service {
@@ -55,10 +117,12 @@ export interface Booking {
   clientId: string
   barbershopId: string
   serviceId: string
+  barberId?: string // ID do barbeiro que vai atender
   date: Date
   time: string
   status: "pending" | "confirmed" | "completed" | "cancelled"
   createdAt: Date
+  notes?: string
 }
 
 export interface Review {
@@ -72,24 +136,18 @@ export interface Review {
   createdAt: Date
 }
 
-export type EmployeeRole = "owner" | "barber" | "receptionist" | "manager"
-
-export interface Employee {
+// Para convites de funcionários
+export interface EmployeeInvitation {
   id: string
-  userId: string
   barbershopId: string
+  barbershopName: string
+  invitedEmail: string
+  invitedBy: string
   role: EmployeeRole
-  name: string
-  email: string
-  avatar?: string
-  phone?: string
-  joinedAt: Date
-  permissions: {
-    manageBookings: boolean
-    manageServices: boolean
-    manageEmployees: boolean
-    viewReports: boolean
-  }
+  permissions: EmployeePermissions
+  status: "pending" | "accepted" | "rejected" | "expired"
+  createdAt: Date
+  expiresAt: Date
 }
 
 export interface PlatformStats {

@@ -3,8 +3,12 @@
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Scissors } from "lucide-react"
+import { useAuth } from "@/lib/auth-context"
+import { UserAvatar } from "@/components/user-avatar"
 
 export function Header() {
+  const { user, loading } = useAuth()
+
   return (
     <header className="fixed top-0 left-0 right-0 z-50 border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto px-4">
@@ -29,12 +33,14 @@ export function Header() {
             >
               Sobre
             </Link>
-            <Link
-              href="/for-barbers"
-              className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Para Barbeiros
-            </Link>
+            {!user && (
+              <Link
+                href="/for-barbers"
+                className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Para Barbeiros
+              </Link>
+            )}
             <Link
               href="/support"
               className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
@@ -44,12 +50,20 @@ export function Header() {
           </nav>
 
           <div className="flex items-center gap-3">
-            <Button variant="ghost" asChild className="hidden sm:inline-flex">
-              <Link href="/login">Entrar</Link>
-            </Button>
-            <Button asChild>
-              <Link href="/signup">Cadastrar</Link>
-            </Button>
+            {loading ? (
+              <div className="w-8 h-8 rounded-full bg-muted animate-pulse" />
+            ) : user ? (
+              <UserAvatar />
+            ) : (
+              <>
+                <Button variant="ghost" asChild className="hidden sm:inline-flex">
+                  <Link href="/login">Entrar</Link>
+                </Button>
+                <Button asChild>
+                  <Link href="/signup">Cadastrar</Link>
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </div>
