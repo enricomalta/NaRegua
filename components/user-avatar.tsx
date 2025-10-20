@@ -105,12 +105,20 @@ export function UserAvatar() {
           </DropdownMenuItem>
           
           {hasRole('client') && (
-            <DropdownMenuItem asChild>
-              <Link href="/client/dashboard">
-                <Calendar className="mr-2 h-4 w-4" />
-                Meus Agendamentos
-              </Link>
-            </DropdownMenuItem>
+            <>
+              <DropdownMenuItem asChild>
+                <Link href="/client/dashboard">
+                  <Calendar className="mr-2 h-4 w-4" />
+                  Meus Agendamentos
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/review">
+                  <Star className="mr-2 h-4 w-4" />
+                  Minhas Avaliações
+                </Link>
+              </DropdownMenuItem>
+            </>
           )}
           
           {hasRole('barber') && (
@@ -202,12 +210,20 @@ export function UserAvatar() {
               <h3 className="text-lg font-semibold">Menu</h3>
               <div className="grid gap-2">
                 {hasRole('client') && (
-                  <Button variant="ghost" className="justify-start" asChild>
-                    <Link href="/client/dashboard" onClick={() => setSidebarOpen(false)}>
-                      <Calendar className="mr-2 h-4 w-4" />
-                      Meus Agendamentos
-                    </Link>
-                  </Button>
+                  <>
+                    <Button variant="ghost" className="justify-start" asChild>
+                      <Link href="/client/dashboard" onClick={() => setSidebarOpen(false)}>
+                        <Calendar className="mr-2 h-4 w-4" />
+                        Meus Agendamentos
+                      </Link>
+                    </Button>
+                    <Button variant="ghost" className="justify-start" asChild>
+                      <Link href="/review" onClick={() => setSidebarOpen(false)}>
+                        <Star className="mr-2 h-4 w-4" />
+                        Minhas Avaliações
+                      </Link>
+                    </Button>
+                  </>
                 )}
                 
                 {hasRole('barber') && (

@@ -70,6 +70,7 @@ export interface Barbershop {
   images: string[]
   rating: number
   reviewCount: number
+  favoriteCount?: number
   services: Service[]
   workingHours: WorkingHours
   createdAt: Date
@@ -123,6 +124,12 @@ export interface Booking {
   status: "pending" | "confirmed" | "completed" | "cancelled"
   createdAt: Date
   notes?: string
+  updatedAt?: Date
+  updatedBy?: string
+  confirmedAt?: Date
+  completedAt?: Date
+  cancelledAt?: Date
+  statusNote?: string
 }
 
 export interface Review {
@@ -133,6 +140,14 @@ export interface Review {
   barbershopId: string
   rating: number
   comment: string
+  createdAt: Date
+  updatedAt?: Date
+}
+
+export interface BarbershopFavorite {
+  id: string
+  userId: string
+  barbershopId: string
   createdAt: Date
 }
 

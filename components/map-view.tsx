@@ -2,7 +2,7 @@
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { MapPin, Star, Phone, Navigation } from "lucide-react"
+import { MapPin, Star, Phone, Navigation, Heart } from "lucide-react"
 import type { Barbershop } from "@/lib/types"
 import Link from "next/link"
 
@@ -64,6 +64,8 @@ interface BarbershopCardProps {
 }
 
 export function BarbershopCard({ barbershop }: BarbershopCardProps) {
+  const favoriteCount = barbershop.favoriteCount ?? 0
+
   return (
     <Card className="border-border/50 hover:border-primary/50 transition-colors">
       <CardContent className="p-0">
@@ -86,6 +88,15 @@ export function BarbershopCard({ barbershop }: BarbershopCardProps) {
               <span className="font-semibold">{barbershop.rating}</span>
             </div>
             <span className="text-sm text-muted-foreground">({barbershop.reviewCount} avaliações)</span>
+          </div>
+
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Heart
+              className={`h-4 w-4 ${favoriteCount > 0 ? "fill-red-500 text-red-500" : "text-muted-foreground"}`}
+            />
+            <span>
+              {favoriteCount} {favoriteCount === 1 ? "favorito" : "favoritos"}
+            </span>
           </div>
 
           <div className="flex items-start gap-2 text-sm text-muted-foreground">

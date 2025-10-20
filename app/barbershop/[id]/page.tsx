@@ -8,12 +8,14 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
 import { ReviewForm } from "@/components/review-form"
-import { getBarbershopById, getReviewsByBarbershop } from "@/lib/firebase-service"
-import { MapPin, Phone, Clock, Star, Navigation } from "lucide-react"
+import { getBarbershopById, getReviewsByBarbershop, isBarbershopFavorited, toggleBarbershopFavorite, hasUserReviewedBarbershop } from "@/lib/firebase-service"
+import { MapPin, Phone, Clock, Star, Navigation, Heart } from "lucide-react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
 import type { Barbershop, Review } from "@/lib/types"
+import { useAuth } from "@/lib/auth-context"
+import { cn } from "@/lib/utils"
 
 const daysOfWeek = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const
 const dayNames = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
@@ -21,10 +23,15 @@ const dayNames = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "
 export default function BarbershopPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const { toast } = useToast()
+  const { user } = useAuth()
   const [barbershop, setBarbershop] = useState<Barbershop | null>(null)
   const [reviews, setReviews] = useState<Review[]>([])
   const [loading, setLoading] = useState(true)
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false)
+  const [isFavorite, setIsFavorite] = useState(false)
+  const [favoriteCount, setFavoriteCount] = useState(0)
+  const [favoriteLoading, setFavoriteLoading] = useState(false)
+  const [hasReviewed, setHasReviewed] = useState(false)
 
   useEffect(() => {
     const loadData = async () => {
@@ -40,6 +47,7 @@ export default function BarbershopPage({ params }: { params: Promise<{ id: strin
         }
         
         setBarbershop(barbershopData)
+        setFavoriteCount(barbershopData.favoriteCount ?? 0)
         setReviews(reviewsData)
       } catch (error) {
         console.error("Erro ao carregar dados da barbearia:", error)
@@ -50,6 +58,44 @@ export default function BarbershopPage({ params }: { params: Promise<{ id: strin
 
     loadData()
   }, [id])
+
+  useEffect(() => {
+    if (!barbershop?.id) {
+      setIsFavorite(false)
+      setHasReviewed(false)
+      return
+    }
+
+    if (!user?.id) {
+      setIsFavorite(false)
+      setHasReviewed(false)
+      return
+    }
+
+    let isActive = true
+
+    const loadStatuses = async () => {
+      try {
+        const [favorited, reviewed] = await Promise.all([
+          isBarbershopFavorited(user.id, barbershop.id),
+          hasUserReviewedBarbershop(user.id, barbershop.id),
+        ])
+
+        if (isActive) {
+          setIsFavorite(favorited)
+          setHasReviewed(reviewed)
+        }
+      } catch (error) {
+        console.error("Erro ao verificar favorito/avaliação: ", error)
+      }
+    }
+
+    loadStatuses()
+
+    return () => {
+      isActive = false
+    }
+  }, [barbershop?.id, user?.id])
 
   if (loading) {
     return (
@@ -66,11 +112,72 @@ export default function BarbershopPage({ params }: { params: Promise<{ id: strin
     notFound()
   }
 
-  const handleReviewSubmit = (rating: number, comment: string) => {
-    toast({
-      title: "Avaliação enviada!",
-      description: "Obrigado por compartilhar sua experiência.",
-    })
+  const handleReviewSubmit = async (_rating: number, _comment: string) => {
+    try {
+      const [updatedBarbershop, updatedReviews] = await Promise.all([
+        getBarbershopById(id),
+        getReviewsByBarbershop(id)
+      ])
+
+      if (updatedBarbershop) {
+        setBarbershop(updatedBarbershop)
+        setFavoriteCount(updatedBarbershop.favoriteCount ?? 0)
+      }
+
+    setReviews(updatedReviews)
+    setHasReviewed(true)
+
+      toast({
+        title: "Avaliação enviada!",
+        description: "Obrigado por compartilhar sua experiência.",
+      })
+    } catch (error) {
+      console.error("Erro ao atualizar dados após avaliação:", error)
+      toast({
+        title: "Erro ao atualizar",
+        description: "A avaliação foi enviada, mas houve um problema ao atualizar os dados na página.",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const handleToggleFavorite = async () => {
+    if (!barbershop) {
+      return
+    }
+
+    if (!user) {
+      toast({
+        title: "Faça login para favoritar",
+        description: "Entre na sua conta para salvar barbearias nos favoritos.",
+      })
+      return
+    }
+
+    try {
+      setFavoriteLoading(true)
+      const result = await toggleBarbershopFavorite(user.id, barbershop.id)
+
+      setIsFavorite(result.favorited)
+      setFavoriteCount(result.favoriteCount)
+      setBarbershop((prev) => (prev ? { ...prev, favoriteCount: result.favoriteCount } : prev))
+
+      toast({
+        title: result.favorited ? "Barbearia favoritada" : "Favorito removido",
+        description: result.favorited
+          ? "Você receberá priorização desta barbearia nas suas buscas."
+          : "A barbearia foi removida da sua lista de favoritos.",
+      })
+    } catch (error) {
+      console.error("Erro ao atualizar favorito:", error)
+      toast({
+        title: "Não foi possível atualizar o favorito",
+        description: "Tente novamente em instantes.",
+        variant: "destructive",
+      })
+    } finally {
+      setFavoriteLoading(false)
+    }
   }
 
   return (
@@ -106,12 +213,52 @@ export default function BarbershopPage({ params }: { params: Promise<{ id: strin
                         <span className="text-muted-foreground">({barbershop.reviewCount} avaliações)</span>
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button variant="outline" onClick={() => setReviewDialogOpen(true)}>
-                        Avaliar
+                    <div className="flex items-center gap-3">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={handleToggleFavorite}
+                        disabled={favoriteLoading}
+                        aria-pressed={isFavorite}
+                        title={isFavorite ? "Remover dos favoritos" : "Adicionar aos favoritos"}
+                        className={cn(
+                          "group relative h-10 w-10 border transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-red-500",
+                          isFavorite
+                            ? "border-red-500 bg-red-500/10 text-red-500 hover:bg-red-500/20"
+                            : "border-border text-muted-foreground hover:border-red-500 hover:bg-red-500/10 hover:text-red-500"
+                        )}
+                      >
+                        <Heart
+                          className={cn(
+                            "h-4 w-4 transition-colors",
+                            isFavorite
+                              ? "fill-red-500 text-red-500"
+                              : "text-muted-foreground group-hover:text-red-500"
+                          )}
+                        />
+                        <span
+                          className={cn(
+                            "pointer-events-none absolute -top-1 -right-1 min-w-[1.5rem] rounded-full border px-1 text-[10px] font-semibold leading-tight",
+                            isFavorite
+                              ? "border-red-500 bg-red-500 text-white"
+                              : "border-border bg-background text-muted-foreground group-hover:border-red-500 group-hover:text-red-500"
+                          )}
+                        >
+                          {favoriteCount}
+                        </span>
                       </Button>
+                      {!hasReviewed && (
+                        <Button
+                          variant="outline"
+                          onClick={() => setReviewDialogOpen(true)}
+                        >
+                          Avaliar
+                        </Button>
+                      )}
                       <Button asChild>
-                        <Link href={`/booking/${barbershop.id}`}>Agendar Horário</Link>
+                        <Link href={`/booking/${barbershop.id}`}>
+                          Agendar Horário
+                        </Link>
                       </Button>
                     </div>
                   </div>

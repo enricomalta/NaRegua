@@ -10,8 +10,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { useAuth } from "@/lib/auth-context"
 import { useRoleProtection } from "@/hooks/use-role-protection"
 import { usePermissions } from "@/hooks/use-permissions"
-import { getBarbershops, getBookingsByBarbershop, getReviewsByBarbershop } from "@/lib/firebase-service"
-import { Calendar, DollarSign, Star, Clock, CheckCircle2, XCircle, Settings, Eye, AlertTriangle } from "lucide-react"
+import { getBarbershops, getBookingsByBarbershop, getReviewsByBarbershop, updateBookingStatus } from "@/lib/firebase-service"
+import { Calendar, DollarSign, Star, Clock, CheckCircle2, XCircle, Settings, Eye, AlertTriangle, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { formatDate } from "@/lib/utils"
 import type { Barbershop, Booking, Review } from "@/lib/types"
@@ -39,6 +39,7 @@ export default function BarberDashboardPage() {
     canUpdateBookings: false,
     canReadReviews: false
   })
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
 
   // Verificar permissões ao carregar
   useEffect(() => {
@@ -249,6 +250,42 @@ export default function BarberDashboardPage() {
         return <Badge className="bg-red-100 text-red-800">Cancelado</Badge>
       default:
         return <Badge variant="outline">Pendente</Badge>
+    }
+  }
+
+  const handleAcceptBooking = async (bookingId: string) => {
+    if (!permissions.canUpdateBookings || !user) {
+      return
+    }
+
+    try {
+      setActionLoading(bookingId)
+
+      await updateBookingStatus(bookingId, "confirmed", {
+        updatedBy: user.id
+      })
+
+      setBookings((prev) => {
+        const updated = prev.map((booking) =>
+          booking.id === bookingId ? { ...booking, status: "confirmed" as const } : booking
+        )
+
+        return [...updated].sort((a, b) => b.date.getTime() - a.date.getTime())
+      })
+
+      toast({
+        title: "Agendamento confirmado",
+        description: "O cliente será notificado sobre a confirmação."
+      })
+    } catch (error) {
+      console.error("Erro ao confirmar agendamento:", error)
+      toast({
+        title: "Erro",
+        description: "Não foi possível confirmar o agendamento. Tente novamente.",
+        variant: "destructive"
+      })
+    } finally {
+      setActionLoading(null)
     }
   }
 
@@ -468,10 +505,25 @@ export default function BarberDashboardPage() {
                         {getStatusBadge(booking.status)}
                         {permissions.canUpdateBookings && booking.status === "pending" && (
                           <div className="flex gap-1">
-                            <Button size="sm" variant="outline">
-                              <CheckCircle2 className="h-4 w-4" />
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleAcceptBooking(booking.id)}
+                              disabled={actionLoading === booking.id}
+                              aria-label="Confirmar agendamento"
+                            >
+                              {actionLoading === booking.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <CheckCircle2 className="h-4 w-4" />
+                              )}
                             </Button>
-                            <Button size="sm" variant="outline">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled
+                              title="Em breve"
+                            >
                               <XCircle className="h-4 w-4" />
                             </Button>
                           </div>

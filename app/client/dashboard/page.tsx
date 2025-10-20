@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAuth } from "@/lib/auth-context"
 import { useRoleProtection } from "@/hooks/use-role-protection"
-import { getBookingsByClient, getBarbershops } from "@/lib/firebase-service"
+import { getBookingsByClient, getBarbershops, getBarbershopFavoritesByUser } from "@/lib/firebase-service"
+import { ReviewForm } from "@/components/review-form"
 import { Calendar, MapPin, Clock, Star, Search, Heart, History } from "lucide-react"
 import Link from "next/link"
 import { formatDate } from "@/lib/utils"
@@ -25,6 +26,68 @@ export default function ClientDashboardPage() {
   const [barbershops, setBarbershops] = useState<Barbershop[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedTab, setSelectedTab] = useState("upcoming")
+  const [reviewDialogOpen, setReviewDialogOpen] = useState(false)
+  const [selectedReviewBarbershop, setSelectedReviewBarbershop] = useState<{ id: string; name: string } | null>(null)
+  const [favoriteBarbershops, setFavoriteBarbershops] = useState<Barbershop[]>([])
+
+  useEffect(() => {
+    const loadData = async () => {
+      if (!user) {
+        setBookings([])
+        setBarbershops([])
+        setFavoriteBarbershops([])
+        setLoading(false)
+        return
+      }
+
+      try {
+        const [clientBookings, allBarbershops, favorites] = await Promise.all([
+          getBookingsByClient(user.id),
+          getBarbershops(),
+          getBarbershopFavoritesByUser(user.id)
+        ])
+        
+        setBookings(clientBookings)
+        setBarbershops(allBarbershops)
+        const favoriteIds = new Set(favorites.map((favorite) => favorite.barbershopId))
+        setFavoriteBarbershops(allBarbershops.filter((shop) => favoriteIds.has(shop.id)))
+      } catch (error) {
+        console.error("Erro ao carregar dados:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    // Garantir que o spinner continue exibido durante a transição de auth
+    if (authLoading) {
+      setLoading(true)
+      return
+    }
+
+    loadData()
+  }, [user, authLoading])
+
+  const handleOpenReview = (barbershopId: string) => {
+    const barbershop = getBarbershop(barbershopId)
+    if (!barbershop) {
+      return
+    }
+
+    setSelectedReviewBarbershop({ id: barbershop.id, name: barbershop.name })
+    setReviewDialogOpen(true)
+  }
+
+  const handleReviewDialogChange = (open: boolean) => {
+    setReviewDialogOpen(open)
+    if (!open) {
+      setSelectedReviewBarbershop(null)
+    }
+  }
+
+  const handleReviewSubmit = () => {
+    setReviewDialogOpen(false)
+    setSelectedReviewBarbershop(null)
+  }
 
   if (authLoading || !isAuthorized) {
     return (
@@ -33,28 +96,6 @@ export default function ClientDashboardPage() {
       </div>
     )
   }
-
-  useEffect(() => {
-    const loadData = async () => {
-      if (!user) return
-
-      try {
-        const [clientBookings, allBarbershops] = await Promise.all([
-          getBookingsByClient(user.id),
-          getBarbershops()
-        ])
-        
-        setBookings(clientBookings)
-        setBarbershops(allBarbershops)
-      } catch (error) {
-        console.error("Erro ao carregar dados:", error)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    loadData()
-  }, [user])
 
   if (!user) {
     return (
@@ -298,8 +339,13 @@ export default function ClientDashboardPage() {
                                 <div className="flex items-center gap-3">
                                   {getStatusBadge(booking.status)}
                                   {booking.status === "completed" && (
-                                    <Button variant="outline" size="sm" asChild>
-                                      <Link href={`/review/${barbershop.id}`}>Avaliar</Link>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      type="button"
+                                      onClick={() => handleOpenReview(barbershop.id)}
+                                    >
+                                      Avaliar
                                     </Button>
                                   )}
                                 </div>
@@ -326,18 +372,50 @@ export default function ClientDashboardPage() {
                   <CardDescription>Suas barbearias preferidas</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <Button asChild className="w-full">
-                    <Link href="/map">
-                      <Search className="h-4 w-4 mr-2" />
-                      Buscar Barbearias
-                    </Link>
-                  </Button>
+                  {favoriteBarbershops.length === 0 ? (
+                    <div className="text-sm text-muted-foreground text-center">
+                      Você ainda não favoritou nenhuma barbearia.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {favoriteBarbershops.map((shop) => (
+                        <Link
+                          key={shop.id}
+                          href={`/barbershop/${shop.id}`}
+                          className="block rounded-lg border border-border/60 p-3 hover:border-primary transition-colors"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="font-semibold text-sm">{shop.name}</p>
+                              <p className="text-xs text-muted-foreground line-clamp-1">
+                                {shop.address.fullAddress}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Star className="h-4 w-4 fill-primary text-primary" />
+                              <span>{shop.rating}</span>
+                            </div>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
           </div>
         </div>
       </main>
+
+      {selectedReviewBarbershop && (
+        <ReviewForm
+          barbershopId={selectedReviewBarbershop.id}
+          barbershopName={selectedReviewBarbershop.name}
+          open={reviewDialogOpen}
+          onOpenChange={handleReviewDialogChange}
+          onSubmit={handleReviewSubmit}
+        />
+      )}
     </div>
   )
 }
