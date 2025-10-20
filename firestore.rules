@@ -9,9 +9,21 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
+    function userHasRole(role) {
+      return isAuthenticated() && (
+        request.auth.token.role == role ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role
+      );
+    }
+
+    function isBarbershopOwner(barbershopId) {
+      return isAuthenticated() &&
+        get(/databases/$(database)/documents/barbershops/$(barbershopId)).data.ownerId == request.auth.uid;
+    }
+
     function isOwnerOrAdmin() {
       return isAuthenticated() &&
-        (request.auth.uid == resource.data.ownerId || request.auth.token.role == 'admin');
+        (request.auth.uid == resource.data.ownerId || userHasRole('admin'));
     }
 
     function isFavoriteCounterUpdate() {
@@ -26,11 +38,17 @@ service cloud.firestore {
       allow read, write: if isSameUser(userId);
       allow create: if isAuthenticated();
     }
+
+    // Perfis públicos com dados sanitizados
+    match /userPublicProfiles/{userId} {
+      allow read: if true;
+      allow create, update, delete: if isSameUser(userId) || (isAuthenticated() && request.auth.token.role == 'admin');
+    }
     
     // Regras para barbearias
     match /barbershops/{barbershopId} {
       allow read: if true; // Qualquer um pode ler barbearias
-      allow create: if isAuthenticated() && request.auth.token.role == 'barber';
+      allow create: if userHasRole('barber');
       allow update: if isOwnerOrAdmin() || isFavoriteCounterUpdate();
       allow delete: if isOwnerOrAdmin();
     }
@@ -40,14 +58,17 @@ service cloud.firestore {
       allow read: if isAuthenticated() && 
         (request.auth.uid == resource.data.clientId || 
          request.auth.uid == resource.data.barberId ||
-         request.auth.token.role == 'admin');
+         request.auth.token.role == 'admin' ||
+         isBarbershopOwner(resource.data.barbershopId));
       allow create: if isAuthenticated();
       allow update: if isAuthenticated() && 
         (request.auth.uid == resource.data.clientId || 
          request.auth.uid == resource.data.barberId ||
-         request.auth.token.role == 'admin');
+         request.auth.token.role == 'admin' ||
+         isBarbershopOwner(resource.data.barbershopId));
       allow delete: if isAuthenticated() && 
-        (request.auth.uid == resource.data.clientId || request.auth.token.role == 'admin');
+        (request.auth.uid == resource.data.clientId || request.auth.token.role == 'admin' ||
+         isBarbershopOwner(resource.data.barbershopId));
     }
     
     // Regras para avaliações
@@ -62,7 +83,7 @@ service cloud.firestore {
     match /employees/{employeeId} {
       allow read: if isAuthenticated();
       allow create, update, delete: if isAuthenticated() && 
-        (request.auth.token.role == 'barber' || request.auth.token.role == 'admin');
+        (userHasRole('barber') || userHasRole('admin'));
     }
 
     // Regras para favoritos de barbearias

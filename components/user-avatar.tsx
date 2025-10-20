@@ -1,6 +1,4 @@
 "use client"
-
-import { useState } from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -11,30 +9,19 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
 import { 
   User, 
   Calendar, 
-  Heart, 
   Settings, 
   LogOut, 
   ChevronDown,
-  MapPin,
   Star,
-  Clock
 } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 import Link from "next/link"
 
 export function UserAvatar() {
   const { user, authUser, logout, hasRole } = useAuth()
-  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   if (!user || !authUser) return null
 
@@ -67,7 +54,6 @@ export function UserAvatar() {
 
   const handleLogout = async () => {
     await logout()
-    setSidebarOpen(false)
   }
 
   return (
@@ -99,9 +85,11 @@ export function UserAvatar() {
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           
-          <DropdownMenuItem onClick={() => setSidebarOpen(true)}>
-            <User className="mr-2 h-4 w-4" />
-            Perfil Completo
+          <DropdownMenuItem asChild>
+            <Link href={`/profile/${user.id}`}>
+              <User className="mr-2 h-4 w-4" />
+              Perfil Completo
+            </Link>
           </DropdownMenuItem>
           
           {hasRole('client') && (
@@ -154,131 +142,6 @@ export function UserAvatar() {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
-        <SheetContent side="right" className="w-[400px] sm:w-[540px]">
-          <SheetHeader>
-            <div className="flex items-center gap-4">
-              <Avatar className="h-16 w-16">
-                <AvatarImage src={user.avatar} alt={user.name} />
-                <AvatarFallback className="text-lg">
-                  {getInitials(user.name)}
-                </AvatarFallback>
-              </Avatar>
-              <div>
-                <SheetTitle className="text-xl">{user.name}</SheetTitle>
-                <SheetDescription>{user.email}</SheetDescription>
-                <span className={`inline-block text-xs px-2 py-1 rounded-full mt-1 ${getRoleColor(user.role)}`}>
-                  {getRoleDisplay(user.role)}
-                </span>
-              </div>
-            </div>
-          </SheetHeader>
-
-          <div className="mt-8 space-y-6">
-            {/* Informações do Usuário */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold">Informações</h3>
-              <div className="grid gap-4">
-                <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                  <User className="h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-medium">Nome</p>
-                    <p className="text-sm text-muted-foreground">{user.name}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                  <MapPin className="h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-medium">Email</p>
-                    <p className="text-sm text-muted-foreground">{user.email}</p>
-                  </div>
-                </div>
-                {user.phone && (
-                  <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                    <Clock className="h-5 w-5 text-muted-foreground" />
-                    <div>
-                      <p className="text-sm font-medium">Telefone</p>
-                      <p className="text-sm text-muted-foreground">{user.phone}</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Menu de Navegação */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold">Menu</h3>
-              <div className="grid gap-2">
-                {hasRole('client') && (
-                  <>
-                    <Button variant="ghost" className="justify-start" asChild>
-                      <Link href="/client/dashboard" onClick={() => setSidebarOpen(false)}>
-                        <Calendar className="mr-2 h-4 w-4" />
-                        Meus Agendamentos
-                      </Link>
-                    </Button>
-                    <Button variant="ghost" className="justify-start" asChild>
-                      <Link href="/review" onClick={() => setSidebarOpen(false)}>
-                        <Star className="mr-2 h-4 w-4" />
-                        Minhas Avaliações
-                      </Link>
-                    </Button>
-                  </>
-                )}
-                
-                {hasRole('barber') && (
-                  <>
-                    <Button variant="ghost" className="justify-start" asChild>
-                      <Link href="/barber/dashboard" onClick={() => setSidebarOpen(false)}>
-                        <Calendar className="mr-2 h-4 w-4" />
-                        Dashboard Barbeiro
-                      </Link>
-                    </Button>
-                    <Button variant="ghost" className="justify-start" asChild>
-                      <Link href="/barber/manage" onClick={() => setSidebarOpen(false)}>
-                        <Settings className="mr-2 h-4 w-4" />
-                        Gerenciar Barbearia
-                      </Link>
-                    </Button>
-                  </>
-                )}
-                
-                {hasRole('admin') && (
-                  <Button variant="ghost" className="justify-start" asChild>
-                    <Link href="/admin/dashboard" onClick={() => setSidebarOpen(false)}>
-                      <Settings className="mr-2 h-4 w-4" />
-                      Painel Administrativo
-                    </Link>
-                  </Button>
-                )}
-                
-                <Button variant="ghost" className="justify-start" asChild>
-                  <Link href="/map" onClick={() => setSidebarOpen(false)}>
-                    <MapPin className="mr-2 h-4 w-4" />
-                    Encontrar Barbearias
-                  </Link>
-                </Button>
-                
-                <Button variant="ghost" className="justify-start" asChild>
-                  <Link href="/settings" onClick={() => setSidebarOpen(false)}>
-                    <Settings className="mr-2 h-4 w-4" />
-                    Configurações
-                  </Link>
-                </Button>
-              </div>
-            </div>
-
-            {/* Ações */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold">Ações</h3>
-              <Button variant="outline" className="w-full justify-start text-red-600 hover:text-red-700" onClick={handleLogout}>
-                <LogOut className="mr-2 h-4 w-4" />
-                Sair da Conta
-              </Button>
-            </div>
-          </div>
-        </SheetContent>
-      </Sheet>
     </>
   )
 }

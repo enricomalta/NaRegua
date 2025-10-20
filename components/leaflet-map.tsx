@@ -9,12 +9,21 @@ interface LeafletMapProps {
   selectedBarbershop: Barbershop | null
   center: { lat: number; lng: number }
   zoom: number
+  userLocation?: { lat: number; lng: number }
 }
 
-export function LeafletMap({ barbershops, onSelectBarbershop, selectedBarbershop, center, zoom }: LeafletMapProps) {
+export function LeafletMap({
+  barbershops,
+  onSelectBarbershop,
+  selectedBarbershop,
+  center,
+  zoom,
+  userLocation,
+}: LeafletMapProps) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<any>(null)
   const markersRef = useRef<any[]>([])
+  const userMarkerRef = useRef<any | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
 
   useEffect(() => {
@@ -49,6 +58,44 @@ export function LeafletMap({ barbershops, onSelectBarbershop, selectedBarbershop
       }
     })
   }, [center.lat, center.lng, zoom])
+
+  useEffect(() => {
+    if (!isLoaded || !mapInstanceRef.current) {
+      return
+    }
+
+    import("leaflet").then((L) => {
+      const map = mapInstanceRef.current
+
+      if (!userLocation) {
+        if (userMarkerRef.current) {
+          userMarkerRef.current.remove()
+          userMarkerRef.current = null
+        }
+        return
+      }
+
+      if (userMarkerRef.current) {
+        userMarkerRef.current.remove()
+        userMarkerRef.current = null
+      }
+
+      const marker = L.circleMarker([userLocation.lat, userLocation.lng], {
+        radius: 8,
+        color: "#2563eb",
+        weight: 2,
+        fillColor: "#60a5fa",
+        fillOpacity: 0.9,
+      }).addTo(map)
+
+      marker.bindPopup("Você está aqui")
+      userMarkerRef.current = marker
+
+      map.flyTo([userLocation.lat, userLocation.lng], Math.max(map.getZoom(), zoom), {
+        duration: 1.2,
+      })
+    })
+  }, [userLocation, isLoaded, zoom])
 
   useEffect(() => {
     if (!isLoaded || !mapInstanceRef.current) return

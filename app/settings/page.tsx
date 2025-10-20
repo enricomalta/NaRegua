@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState, type ChangeEvent } from "react"
 import { Header } from "@/components/header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,22 +11,139 @@ import { Switch } from "@/components/ui/switch"
 import { DataModeToggle } from "@/components/data-mode-toggle"
 import { useAuth } from "@/lib/auth-context"
 import { useRoleProtection, RoleBasedContent } from "@/hooks/use-role-protection"
+import { useToast } from "@/hooks/use-toast"
+import { getDefaultUserSettings, updateUserSettings } from "@/lib/firebase-service"
+import type { UserAppearanceSettings, UserNotificationSettings, UserPrivacySettings, UserRole } from "@/lib/types"
 import { User, Bell, Shield, Database, Moon, Globe } from "lucide-react"
 
 export default function SettingsPage() {
-  const { user, authUser } = useAuth()
+  const { user, authUser, login } = useAuth()
   const { isAuthorized, loading: authLoading } = useRoleProtection({
     requireAuth: true
   })
+  const { toast } = useToast()
 
-  const [notifications, setNotifications] = useState({
-    bookingConfirmed: true,
-    bookingReminder: true,
-    newReview: true,
-    promotions: false,
-  })
+  const defaultSettings = useMemo(() => {
+    const role = (authUser?.role as UserRole) ?? "client"
+    return getDefaultUserSettings(role)
+  }, [authUser?.role])
 
-  const [darkMode, setDarkMode] = useState(true)
+  const [notifications, setNotifications] = useState<UserNotificationSettings>(defaultSettings.notifications)
+  const [privacy, setPrivacy] = useState<UserPrivacySettings>(defaultSettings.privacy)
+  const [appearance, setAppearance] = useState<UserAppearanceSettings>(defaultSettings.appearance)
+
+  const [savingNotifications, setSavingNotifications] = useState(false)
+  const [savingPrivacy, setSavingPrivacy] = useState(false)
+  const [savingAppearance, setSavingAppearance] = useState(false)
+
+  useEffect(() => {
+    const target = user?.settings
+      ? {
+          notifications: {
+            ...defaultSettings.notifications,
+            ...user.settings.notifications,
+          },
+          privacy: {
+            ...defaultSettings.privacy,
+            ...user.settings.privacy,
+          },
+          appearance: {
+            ...defaultSettings.appearance,
+            ...user.settings.appearance,
+          },
+        }
+      : defaultSettings
+
+    setNotifications(target.notifications)
+    setPrivacy(target.privacy)
+    setAppearance(target.appearance)
+  }, [user?.settings, defaultSettings])
+
+  const handleSaveNotifications = async () => {
+    if (!user) {
+      return
+    }
+
+    try {
+      setSavingNotifications(true)
+      const updatedUser = await updateUserSettings(user.id, { notifications })
+      if (updatedUser) {
+        login(updatedUser)
+        toast({
+          title: "Preferências atualizadas",
+          description: "Suas notificações foram salvas com sucesso.",
+        })
+      }
+    } catch (error) {
+      console.error("Erro ao salvar notificações:", error)
+      toast({
+        title: "Não foi possível salvar",
+        description: "Tente novamente em instantes.",
+        variant: "destructive",
+      })
+    } finally {
+      setSavingNotifications(false)
+    }
+  }
+
+  const handleSavePrivacy = async () => {
+    if (!user) {
+      return
+    }
+
+    try {
+      setSavingPrivacy(true)
+      const updatedUser = await updateUserSettings(user.id, { privacy })
+      if (updatedUser) {
+        login(updatedUser)
+        toast({
+          title: "Privacidade atualizada",
+          description: "Suas preferências de privacidade foram salvas.",
+        })
+      }
+    } catch (error) {
+      console.error("Erro ao salvar privacidade:", error)
+      toast({
+        title: "Não foi possível salvar",
+        description: "Tente novamente em instantes.",
+        variant: "destructive",
+      })
+    } finally {
+      setSavingPrivacy(false)
+    }
+  }
+
+  const handleSaveAppearance = async () => {
+    if (!user) {
+      return
+    }
+
+    try {
+      setSavingAppearance(true)
+      const updatedUser = await updateUserSettings(user.id, { appearance })
+      if (updatedUser) {
+        login(updatedUser)
+        toast({
+          title: "Aparência atualizada",
+          description: "Suas preferências de aparência foram salvas.",
+        })
+      }
+    } catch (error) {
+      console.error("Erro ao salvar aparência:", error)
+      toast({
+        title: "Não foi possível salvar",
+        description: "Tente novamente em instantes.",
+        variant: "destructive",
+      })
+    } finally {
+      setSavingAppearance(false)
+    }
+  }
+
+  const handleLanguageChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const value = event.target.value
+    setAppearance((prev) => ({ ...prev, language: value }))
+  }
 
   if (authLoading || !isAuthorized) {
     return (
@@ -161,7 +278,9 @@ export default function SettingsPage() {
                   </div>
                   <Switch
                     checked={notifications.bookingConfirmed}
-                    onCheckedChange={(checked) => setNotifications({ ...notifications, bookingConfirmed: checked })}
+                    onCheckedChange={(checked) =>
+                      setNotifications((prev) => ({ ...prev, bookingConfirmed: checked }))
+                    }
                   />
                 </div>
 
@@ -172,7 +291,9 @@ export default function SettingsPage() {
                   </div>
                   <Switch
                     checked={notifications.bookingReminder}
-                    onCheckedChange={(checked) => setNotifications({ ...notifications, bookingReminder: checked })}
+                    onCheckedChange={(checked) =>
+                      setNotifications((prev) => ({ ...prev, bookingReminder: checked }))
+                    }
                   />
                 </div>
 
@@ -188,7 +309,9 @@ export default function SettingsPage() {
                   </div>
                   <Switch
                     checked={notifications.newReview}
-                    onCheckedChange={(checked) => setNotifications({ ...notifications, newReview: checked })}
+                    onCheckedChange={(checked) =>
+                      setNotifications((prev) => ({ ...prev, newReview: checked }))
+                    }
                   />
                 </div>
 
@@ -200,7 +323,9 @@ export default function SettingsPage() {
                     </div>
                     <Switch
                       checked={notifications.promotions}
-                      onCheckedChange={(checked) => setNotifications({ ...notifications, promotions: checked })}
+                      onCheckedChange={(checked) =>
+                        setNotifications((prev) => ({ ...prev, promotions: checked }))
+                      }
                     />
                   </div>
                 </RoleBasedContent>
@@ -211,11 +336,18 @@ export default function SettingsPage() {
                       <Label>Novos Agendamentos</Label>
                       <p className="text-sm text-muted-foreground">Notificações sobre novos agendamentos</p>
                     </div>
-                    <Switch defaultChecked />
+                    <Switch
+                      checked={notifications.newBooking}
+                      onCheckedChange={(checked) =>
+                        setNotifications((prev) => ({ ...prev, newBooking: checked }))
+                      }
+                    />
                   </div>
                 </RoleBasedContent>
 
-                <Button>Salvar Preferências</Button>
+                <Button onClick={handleSaveNotifications} disabled={savingNotifications || !user}>
+                  {savingNotifications ? "Salvando..." : "Salvar Preferências"}
+                </Button>
               </CardContent>
             </Card>
           </TabsContent>
@@ -233,7 +365,12 @@ export default function SettingsPage() {
                     <Label>Perfil Público</Label>
                     <p className="text-sm text-muted-foreground">Permitir que outros usuários vejam seu perfil</p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch
+                    checked={privacy.isProfilePublic}
+                    onCheckedChange={(checked) =>
+                      setPrivacy((prev) => ({ ...prev, isProfilePublic: checked }))
+                    }
+                  />
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -241,7 +378,12 @@ export default function SettingsPage() {
                     <Label>Mostrar Histórico de Avaliações</Label>
                     <p className="text-sm text-muted-foreground">Exibir suas avaliações publicamente</p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch
+                    checked={privacy.showReviewHistory}
+                    onCheckedChange={(checked) =>
+                      setPrivacy((prev) => ({ ...prev, showReviewHistory: checked }))
+                    }
+                  />
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -249,10 +391,20 @@ export default function SettingsPage() {
                     <Label>Autenticação de Dois Fatores</Label>
                     <p className="text-sm text-muted-foreground">Adicione uma camada extra de segurança</p>
                   </div>
-                  <Switch />
+                  <Switch
+                    checked={privacy.twoFactorEnabled}
+                    onCheckedChange={(checked) =>
+                      setPrivacy((prev) => ({ ...prev, twoFactorEnabled: checked }))
+                    }
+                  />
                 </div>
 
-                <Button variant="destructive">Excluir Conta</Button>
+                <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
+                  <Button onClick={handleSavePrivacy} disabled={savingPrivacy || !user}>
+                    {savingPrivacy ? "Salvando..." : "Salvar Preferências"}
+                  </Button>
+                  <Button variant="destructive">Excluir Conta</Button>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -268,22 +420,37 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label>Modo Escuro</Label>
-                    <p className="text-sm text-muted-foreground">Ativar tema escuro (atualmente ativo)</p>
+                    <p className="text-sm text-muted-foreground">
+                      {appearance.darkMode ? "Ativar tema escuro (atualmente ativo)" : "Ativar tema escuro"}
+                    </p>
                   </div>
-                  <Switch checked={darkMode} onCheckedChange={setDarkMode} />
+                  <Switch
+                    checked={appearance.darkMode}
+                    onCheckedChange={(checked) =>
+                      setAppearance((prev) => ({ ...prev, darkMode: checked }))
+                    }
+                  />
                 </div>
 
                 <div className="space-y-2">
                   <Label>Idioma</Label>
                   <div className="flex items-center gap-2">
                     <Globe className="h-4 w-4 text-muted-foreground" />
-                    <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                    <select
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={appearance.language}
+                      onChange={handleLanguageChange}
+                    >
                       <option value="pt-BR">Português (Brasil)</option>
                       <option value="en">English</option>
                       <option value="es">Español</option>
                     </select>
                   </div>
                 </div>
+
+                <Button onClick={handleSaveAppearance} disabled={savingAppearance || !user}>
+                  {savingAppearance ? "Salvando..." : "Salvar Aparência"}
+                </Button>
               </CardContent>
             </Card>
           </TabsContent>

@@ -61,9 +61,10 @@ export function MapView({ barbershops, onSelectBarbershop, selectedBarbershop }:
 
 interface BarbershopCardProps {
   barbershop: Barbershop
+  distanceKm?: number
 }
 
-export function BarbershopCard({ barbershop }: BarbershopCardProps) {
+export function BarbershopCard({ barbershop, distanceKm }: BarbershopCardProps) {
   const favoriteCount = barbershop.favoriteCount ?? 0
 
   return (
@@ -99,9 +100,16 @@ export function BarbershopCard({ barbershop }: BarbershopCardProps) {
             </span>
           </div>
 
-          <div className="flex items-start gap-2 text-sm text-muted-foreground">
-            <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0" />
-            <span className="line-clamp-1">{barbershop.address.fullAddress}</span>
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            <div className="flex items-start gap-2">
+              <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0" />
+              <span className="line-clamp-1">{barbershop.address.fullAddress}</span>
+            </div>
+            {typeof distanceKm === "number" && Number.isFinite(distanceKm) && (
+              <span className="text-xs text-muted-foreground">
+                • {distanceKm.toFixed(1)} km de você
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2 text-sm text-muted-foreground">

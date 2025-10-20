@@ -4,6 +4,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 
 interface BarbershopFiltersProps {
   maxDistance: number
@@ -14,6 +15,10 @@ interface BarbershopFiltersProps {
   onMaxPriceChange: (value: number) => void
   sortBy: string
   onSortByChange: (value: string) => void
+  distanceAvailable: boolean
+  locationStatus: "idle" | "loading" | "granted" | "denied" | "unsupported"
+  onRequestLocation?: () => void
+  locationError?: string | null
 }
 
 export function BarbershopFilters({
@@ -25,7 +30,28 @@ export function BarbershopFilters({
   onMaxPriceChange,
   sortBy,
   onSortByChange,
+  distanceAvailable,
+  locationStatus,
+  onRequestLocation,
+  locationError,
 }: BarbershopFiltersProps) {
+  const renderLocationMessage = () => {
+    if (distanceAvailable && locationStatus === "granted") {
+      return null
+    }
+
+    switch (locationStatus) {
+      case "loading":
+        return "Obtendo sua localização..."
+      case "denied":
+        return "Não foi possível acessar sua localização."
+      case "unsupported":
+        return "Seu navegador não oferece suporte à geolocalização."
+      default:
+        return "Permita acesso à localização para filtrar por distância."
+    }
+  }
+
   return (
     <Card className="border-border/50">
       <CardHeader>
@@ -59,7 +85,27 @@ export function BarbershopFilters({
             max={50}
             step={1}
             className="w-full"
+            disabled={!distanceAvailable}
           />
+          {!distanceAvailable && (
+            <div className="space-y-2 rounded-md border border-dashed border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
+              <p>{renderLocationMessage()}</p>
+              {locationError && locationStatus !== "loading" && (
+                <p className="text-destructive">{locationError}</p>
+              )}
+              {onRequestLocation && locationStatus !== "loading" && locationStatus !== "unsupported" && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="h-7 px-3 text-xs"
+                  onClick={onRequestLocation}
+                >
+                  {locationStatus === "denied" ? "Tentar novamente" : "Permitir localização"}
+                </Button>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="space-y-3">

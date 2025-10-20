@@ -2,7 +2,17 @@
 import { collection, doc, getDoc, getDocs, addDoc, updateDoc, setDoc, query, where, orderBy, runTransaction } from "firebase/firestore"
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, User as FirebaseUser } from "firebase/auth"
 import { db, auth } from "./firebase-config"
-import type { Barbershop, Booking, Review, BarbershopEmployee, User, UserRole, BarbershopFavorite } from "./types"
+import type {
+  Barbershop,
+  Booking,
+  Review,
+  BarbershopEmployee,
+  User,
+  UserRole,
+  BarbershopFavorite,
+  UserSettings,
+  PublicUserProfile,
+} from "./types"
 
 // Authentication
 export async function signUpUser(email: string, password: string, userData: Omit<User, "id" | "createdAt">): Promise<User> {
@@ -12,19 +22,29 @@ export async function signUpUser(email: string, password: string, userData: Omit
     const firebaseUser = userCredential.user
 
     // Create user document in Firestore using the UID as document ID
+    const now = new Date()
     const user: Omit<User, "id"> = {
       ...userData,
       email: firebaseUser.email!,
-      createdAt: new Date(),
+      createdAt: now,
+      updatedAt: now,
+      settings: getDefaultUserSettings(userData.role),
     }
 
     const userDocRef = doc(db, "users", firebaseUser.uid)
     await setDoc(userDocRef, user)
+    await setDoc(
+      doc(db, "userPublicProfiles", firebaseUser.uid),
+      buildPublicUserProfilePayload({
+        name: user.name,
+        role: user.role,
+        avatar: user.avatar,
+        createdAt: user.createdAt,
+        settings: user.settings,
+      })
+    )
 
-    return {
-      id: firebaseUser.uid,
-      ...user,
-    }
+    return normalizeUser(firebaseUser.uid, user)
   } catch (error) {
     console.error("[v0] Error creating user:", error)
     throw error
@@ -44,11 +64,9 @@ export async function signInUser(email: string, password: string): Promise<User>
       throw new Error("User data not found")
     }
 
-    return {
-      id: firebaseUser.uid,
-      ...userDoc.data(),
-      createdAt: userDoc.data().createdAt?.toDate() || new Date(),
-    } as User
+  const user = normalizeUser(firebaseUser.uid, userDoc.data())
+  await syncPublicUserProfile(user)
+  return user
   } catch (error) {
     console.error("[v0] Error signing in:", error)
     throw error
@@ -73,14 +91,101 @@ export async function getUserById(uid: string): Promise<User | null> {
       return null
     }
 
-    return {
-      id: uid,
-      ...userDoc.data(),
-      createdAt: userDoc.data().createdAt?.toDate() || new Date(),
-    } as User
+    const user = normalizeUser(uid, userDoc.data())
+    await syncPublicUserProfile(user)
+    return user
   } catch (error) {
+    if ((error as { code?: string } | undefined)?.code === "permission-denied") {
+      return null
+    }
+
     console.error("[v0] Error fetching user:", error)
     return null
+  }
+}
+
+export async function getPublicUserProfileById(uid: string): Promise<PublicUserProfile | null> {
+  try {
+    const publicDocRef = doc(db, "userPublicProfiles", uid)
+    const docSnap = await getDoc(publicDocRef)
+
+    if (!docSnap.exists()) {
+      return null
+    }
+
+    return normalizePublicUserProfile(uid, docSnap.data())
+  } catch (error) {
+    console.error("[v0] Error fetching public user profile:", error)
+    return null
+  }
+}
+
+export async function updateUserProfile(
+  userId: string,
+  data: { name?: string; phone?: string; avatar?: string }
+): Promise<User | null> {
+  try {
+    const userRef = doc(db, "users", userId)
+    const payload = removeUndefinedFields(data)
+
+    if (Object.keys(payload).length === 0) {
+      return getUserById(userId)
+    }
+
+    const now = new Date()
+
+    await updateDoc(userRef, {
+      ...payload,
+      updatedAt: now,
+    })
+
+    const userDoc = await getDoc(userRef)
+    if (!userDoc.exists()) {
+      return null
+    }
+
+    const updatedUser = normalizeUser(userId, userDoc.data())
+    await syncPublicUserProfile(updatedUser)
+    return updatedUser
+  } catch (error) {
+    console.error("[v0] Error updating user profile:", error)
+    throw error
+  }
+}
+
+export async function updateUserSettings(
+  userId: string,
+  settings: Partial<UserSettings>
+): Promise<User | null> {
+  try {
+    const userRef = doc(db, "users", userId)
+    const userDoc = await getDoc(userRef)
+
+    if (!userDoc.exists()) {
+      return null
+    }
+
+    const current = normalizeUser(userId, userDoc.data())
+    const mergedSettings = mergeUserSettings(current.settings ?? getDefaultUserSettings(current.role), settings)
+    const now = new Date()
+
+    await updateDoc(userRef, {
+      settings: mergedSettings,
+      updatedAt: now,
+    })
+
+    const updatedUser: User = {
+      ...current,
+      settings: mergedSettings,
+      updatedAt: now,
+    }
+
+    await syncPublicUserProfile(updatedUser)
+
+    return updatedUser
+  } catch (error) {
+    console.error("[v0] Error updating user settings:", error)
+    throw error
   }
 }
 
@@ -154,6 +259,163 @@ function removeUndefinedFields(obj: any): any {
     }
   }
   return cleaned
+}
+
+const DEFAULT_LANGUAGE = "pt-BR"
+
+export function getDefaultUserSettings(role: UserRole = "client"): UserSettings {
+  const isClient = role === "client"
+  const isBarber = role === "barber"
+
+  return {
+    notifications: {
+      bookingConfirmed: true,
+      bookingReminder: true,
+      newReview: true,
+      promotions: isClient,
+      newBooking: isBarber,
+    },
+    privacy: {
+      isProfilePublic: true,
+      showReviewHistory: true,
+      twoFactorEnabled: false,
+    },
+    appearance: {
+      darkMode: true,
+      language: DEFAULT_LANGUAGE,
+    },
+  }
+}
+
+function mergeUserSettings(base: UserSettings, updates?: Partial<UserSettings>): UserSettings {
+  if (!updates) {
+    return base
+  }
+
+  return {
+    notifications: {
+      ...base.notifications,
+      ...(updates.notifications ?? {}),
+    },
+    privacy: {
+      ...base.privacy,
+      ...(updates.privacy ?? {}),
+    },
+    appearance: {
+      ...base.appearance,
+      ...(updates.appearance ?? {}),
+    },
+  }
+}
+
+type PublicPrivacy = Pick<UserSettings["privacy"], "isProfilePublic" | "showReviewHistory">
+type PublicProfilePayload = Omit<PublicUserProfile, "id">
+
+function resolvePublicPrivacy(role: UserRole, settings?: UserSettings): PublicPrivacy {
+  const defaults = getDefaultUserSettings(role).privacy
+  const privacySettings: Partial<UserSettings["privacy"]> = settings?.privacy ?? {}
+
+  return {
+    isProfilePublic: privacySettings.isProfilePublic ?? defaults.isProfilePublic,
+    showReviewHistory: privacySettings.showReviewHistory ?? defaults.showReviewHistory,
+  }
+}
+
+function buildPublicUserProfilePayload(data: {
+  name: string
+  role: UserRole
+  avatar?: string
+  createdAt: Date
+  settings?: UserSettings
+}): PublicProfilePayload {
+  return removeUndefinedFields({
+    name: data.name,
+    role: data.role,
+    avatar: data.avatar,
+    createdAt: ensureDate(data.createdAt),
+    privacy: resolvePublicPrivacy(data.role, data.settings),
+  }) as PublicProfilePayload
+}
+
+function ensureDate(value: any, fallback?: Date): Date {
+  if (!value) {
+    return fallback ?? new Date()
+  }
+
+  if (value instanceof Date) {
+    return value
+  }
+
+  if (typeof value.toDate === "function") {
+    return value.toDate()
+  }
+
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? fallback ?? new Date() : parsed
+}
+
+function normalizeUser(uid: string, data: any): User {
+  const role = (data.role as UserRole) ?? "client"
+  const defaultSettings = getDefaultUserSettings(role)
+  const rawSettings = (data.settings || {}) as Partial<UserSettings>
+  const settings = mergeUserSettings(defaultSettings, rawSettings)
+
+  const createdAt = ensureDate(data.createdAt)
+  const updatedAt = data.updatedAt ? ensureDate(data.updatedAt) : undefined
+
+  return {
+    id: uid,
+    email: data.email as string,
+    name: data.name as string,
+    role,
+    avatar: data.avatar,
+    phone: data.phone,
+    createdAt,
+    updatedAt,
+    settings,
+    employments: data.employments as User["employments"],
+  }
+}
+
+function normalizePublicUserProfile(uid: string, data: any): PublicUserProfile {
+  const role = (data.role as UserRole) ?? "client"
+  const createdAt = ensureDate(data.createdAt)
+  const privacyRaw = data.privacy ?? {}
+
+  return {
+    id: uid,
+    name: data.name as string,
+    role,
+    avatar: data.avatar,
+    createdAt,
+    privacy: {
+      isProfilePublic:
+        typeof privacyRaw.isProfilePublic === "boolean"
+          ? privacyRaw.isProfilePublic
+          : getDefaultUserSettings(role).privacy.isProfilePublic,
+      showReviewHistory:
+        typeof privacyRaw.showReviewHistory === "boolean"
+          ? privacyRaw.showReviewHistory
+          : getDefaultUserSettings(role).privacy.showReviewHistory,
+    },
+  }
+}
+
+async function syncPublicUserProfile(user: User): Promise<void> {
+  try {
+    const publicProfileRef = doc(db, "userPublicProfiles", user.id)
+    const payload = buildPublicUserProfilePayload({
+      name: user.name,
+      role: user.role,
+      avatar: user.avatar,
+      createdAt: user.createdAt,
+      settings: user.settings,
+    })
+
+    await setDoc(publicProfileRef, payload, { merge: true })
+  } catch (error) {
+    console.error(`[v0] Error syncing public profile for user ${user.id}:`, error)
+  }
 }
 
 // Nova função para criar barbearia e associar o owner automaticamente

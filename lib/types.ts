@@ -1,6 +1,31 @@
 export type UserRole = "client" | "barber" | "admin"
 export type EmployeeRole = "owner" | "manager" | "barber" | "receptionist"
 
+export interface UserNotificationSettings {
+  bookingConfirmed: boolean
+  bookingReminder: boolean
+  newReview: boolean
+  promotions: boolean
+  newBooking: boolean
+}
+
+export interface UserPrivacySettings {
+  isProfilePublic: boolean
+  showReviewHistory: boolean
+  twoFactorEnabled: boolean
+}
+
+export interface UserAppearanceSettings {
+  darkMode: boolean
+  language: string
+}
+
+export interface UserSettings {
+  notifications: UserNotificationSettings
+  privacy: UserPrivacySettings
+  appearance: UserAppearanceSettings
+}
+
 export interface User {
   id: string
   email: string
@@ -9,8 +34,19 @@ export interface User {
   avatar?: string
   phone?: string
   createdAt: Date
+  updatedAt?: Date
+  settings?: UserSettings
   // Relação com barbearias onde trabalha
-  employments?: Employment[]
+  employments?: Record<string, Employment>
+}
+
+export interface PublicUserProfile {
+  id: string
+  name: string
+  role: UserRole
+  avatar?: string
+  createdAt: Date
+  privacy: Pick<UserPrivacySettings, "isProfilePublic" | "showReviewHistory">
 }
 
 export interface Employment {
