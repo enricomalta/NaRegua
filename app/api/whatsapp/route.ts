@@ -7,6 +7,7 @@ type WhatsAppAction =
   | "get_services"
   | "get_prices"
   | "get_available_slots"
+  | "get_client_bookings"
   | "book_appointment"
   | "cancel_appointment"
 
@@ -29,6 +30,11 @@ type WorkingHours = {
 }
 
 const STATUS_BLOCKED = new Set(["pending", "confirmed"])
+const CANCELLABLE_STATUS = new Set(["pending", "confirmed"])
+
+function normalizeString(value: unknown): string {
+  return String(value ?? "").trim()
+}
 
 function getConfiguredSecret(): string | null {
   const secret = process.env.WHATSAPP_BOT_SECRET_KEY ?? process.env.WHATSAPP_SECRET_KEY ?? null
@@ -82,7 +88,7 @@ function ensureDate(value: any): Date {
   return new Date(value)
 }
 
-function parseIsoDate(dateStr: string): Date {
+function parseIsoDateParts(dateStr: string): { year: number; month: number; day: number } {
   const parts = dateStr.split("-")
   if (parts.length !== 3) throw new Error("date deve estar no formato YYYY-MM-DD")
 
@@ -94,14 +100,80 @@ function parseIsoDate(dateStr: string): Date {
     throw new Error("date invalida")
   }
 
-  const date = new Date(year, month - 1, day)
+  const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0))
   if (Number.isNaN(date.getTime())) throw new Error("date invalida")
-  return date
+
+  return { year, month, day }
 }
 
-function isWithinDay(date: Date, dayStart: Date, dayEnd: Date): boolean {
-  const ms = date.getTime()
-  return ms >= dayStart.getTime() && ms <= dayEnd.getTime()
+function buildUtcNoonDateFromIso(dateStr: string): Date {
+  const { year, month, day } = parseIsoDateParts(dateStr)
+  return new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0))
+}
+
+function dateKeyFromDateInSaoPaulo(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date)
+
+  const year = parts.find((part) => part.type === "year")?.value
+  const month = parts.find((part) => part.type === "month")?.value
+  const day = parts.find((part) => part.type === "day")?.value
+
+  if (!year || !month || !day) {
+    throw new Error("Falha ao formatar data")
+  }
+
+  return `${year}-${month}-${day}`
+}
+
+function currentSaoPauloDateKeyAndMinutes(): { dateKey: string; minutes: number } {
+  const now = new Date()
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now)
+
+  const year = parts.find((part) => part.type === "year")?.value
+  const month = parts.find((part) => part.type === "month")?.value
+  const day = parts.find((part) => part.type === "day")?.value
+  const hour = Number(parts.find((part) => part.type === "hour")?.value ?? "0")
+  const minute = Number(parts.find((part) => part.type === "minute")?.value ?? "0")
+
+  if (!year || !month || !day || !Number.isInteger(hour) || !Number.isInteger(minute)) {
+    throw new Error("Falha ao obter horario atual")
+  }
+
+  return {
+    dateKey: `${year}-${month}-${day}`,
+    minutes: hour * 60 + minute,
+  }
+}
+
+function isSlotInThePastForToday(dateStr: string, time: string): boolean {
+  const nowInSaoPaulo = currentSaoPauloDateKeyAndMinutes()
+  return dateStr === nowInSaoPaulo.dateKey && minutesFromTime(time) <= nowInSaoPaulo.minutes
+}
+
+function normalizeBrazilPhone(raw: string | undefined): string | undefined {
+  if (!raw) return undefined
+  const digits = raw.replace(/\D/g, "")
+  // Aceita apenas E.164 do Brasil: 55 + DDD + numero (12 ou 13 digitos)
+  if (!digits.startsWith("55")) return undefined
+  if (digits.length < 12 || digits.length > 13) return undefined
+  return digits
+}
+
+function digitsOnly(raw: string | undefined): string {
+  return raw ? raw.replace(/\D/g, "") : ""
 }
 
 function minutesFromTime(time: string): number {
@@ -132,6 +204,21 @@ function getDayKey(date: Date): keyof WorkingHours {
   return map[index]
 }
 
+function getDayKeyFromIsoDate(dateStr: string): keyof WorkingHours {
+  const { year, month, day } = parseIsoDateParts(dateStr)
+  const index = new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0)).getUTCDay()
+  const map: Array<keyof WorkingHours> = [
+    "sunday",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+  ]
+  return map[index]
+}
+
 function generateTimeSlots(start: string, end: string, durationMinutes: number): string[] {
   const startMinutes = minutesFromTime(start)
   const endMinutes = minutesFromTime(end)
@@ -143,6 +230,15 @@ function generateTimeSlots(start: string, end: string, durationMinutes: number):
   }
 
   return output
+}
+
+function canCancelBooking(dateKey: string, time: string, status: string): boolean {
+  if (!CANCELLABLE_STATUS.has(status)) return false
+
+  const now = currentSaoPauloDateKeyAndMinutes()
+  if (dateKey < now.dateKey) return false
+  if (dateKey === now.dateKey && minutesFromTime(time) <= now.minutes) return false
+  return true
 }
 
 async function requireBarbershop(barbershopId: string): Promise<Record<string, any> & { id: string }> {
@@ -171,7 +267,7 @@ function normalizeServices(rawServices: any): Array<{
 }
 
 async function getServices(payload: Record<string, any>) {
-  const barbershopId = String(payload?.barbershopId ?? "")
+  const barbershopId = normalizeString(payload?.barbershopId)
   if (!barbershopId) throw new Error("barbershopId obrigatorio")
 
   const shop = await requireBarbershop(barbershopId)
@@ -197,25 +293,128 @@ async function getPrices(payload: Record<string, any>) {
   }
 }
 
+async function getClientBookings(payload: Record<string, any>) {
+  const rawClientPhone = normalizeString(payload?.clientPhone)
+  const rawClientId = normalizeString(payload?.clientId)
+  const barbershopId = normalizeString(payload?.barbershopId)
+  const onlyCancellable = payload?.onlyCancellable !== false
+
+  if (!rawClientPhone && !rawClientId) {
+    throw new Error("clientPhone ou clientId obrigatorio")
+  }
+
+  const phoneDigits = digitsOnly(rawClientPhone)
+  const normalizedPhone = normalizeBrazilPhone(rawClientPhone)
+  const candidateClientIds = new Set<string>()
+  const candidatePhones = new Set<string>()
+
+  if (rawClientId) candidateClientIds.add(rawClientId)
+  if (phoneDigits) {
+    candidateClientIds.add(`whatsapp:${phoneDigits}`)
+    candidatePhones.add(phoneDigits)
+  }
+  if (normalizedPhone) {
+    candidateClientIds.add(`whatsapp:${normalizedPhone}`)
+    candidatePhones.add(normalizedPhone)
+  }
+
+  const snapshots = await Promise.all([
+    ...Array.from(candidateClientIds).map((clientId) =>
+      adminDb.collection("bookings").where("clientId", "==", clientId).get()
+    ),
+    ...Array.from(candidatePhones).map((clientPhone) =>
+      adminDb.collection("bookings").where("clientPhone", "==", clientPhone).get()
+    ),
+  ])
+
+  const uniqueBookings = new Map<string, Record<string, any>>()
+  snapshots.forEach((snapshot) => {
+    snapshot.forEach((doc) => {
+      uniqueBookings.set(doc.id, { id: doc.id, ...(doc.data() ?? {}) })
+    })
+  })
+
+  const bookings = Array.from(uniqueBookings.values()).filter((booking) => {
+    if (barbershopId && booking.barbershopId !== barbershopId) return false
+
+    const dateKey =
+      typeof booking.dateKey === "string" && booking.dateKey
+        ? booking.dateKey
+        : dateKeyFromDateInSaoPaulo(ensureDate(booking.date))
+
+    if (!onlyCancellable) return true
+    return canCancelBooking(dateKey, String(booking.time ?? ""), String(booking.status ?? ""))
+  })
+
+  bookings.sort((a, b) => {
+    const dateKeyA = typeof a.dateKey === "string" && a.dateKey ? a.dateKey : dateKeyFromDateInSaoPaulo(ensureDate(a.date))
+    const dateKeyB = typeof b.dateKey === "string" && b.dateKey ? b.dateKey : dateKeyFromDateInSaoPaulo(ensureDate(b.date))
+    if (dateKeyA !== dateKeyB) return dateKeyA.localeCompare(dateKeyB)
+    return String(a.time ?? "").localeCompare(String(b.time ?? ""))
+  })
+
+  const uniqueBarbershopIds = Array.from(new Set(bookings.map((booking) => String(booking.barbershopId ?? "")).filter(Boolean)))
+  const barbershopDocs = await Promise.all(
+    uniqueBarbershopIds.map((id) => adminDb.collection("barbershops").doc(id).get())
+  )
+
+  const barbershopMap = new Map<string, Record<string, any>>()
+  barbershopDocs.forEach((doc) => {
+    if (doc.exists) {
+      barbershopMap.set(doc.id, { id: doc.id, ...(doc.data() ?? {}) })
+    }
+  })
+
+  return {
+    clientPhone: rawClientPhone || undefined,
+    clientId: rawClientId || undefined,
+    total: bookings.length,
+    bookings: bookings.map((booking) => {
+      const shop = barbershopMap.get(String(booking.barbershopId ?? ""))
+      const services = normalizeServices(shop?.services)
+      const service = services.find((item) => item.id === String(booking.serviceId ?? ""))
+      const dateKey =
+        typeof booking.dateKey === "string" && booking.dateKey
+          ? booking.dateKey
+          : dateKeyFromDateInSaoPaulo(ensureDate(booking.date))
+      const status = String(booking.status ?? "")
+      const time = String(booking.time ?? "")
+
+      return {
+        bookingId: booking.id,
+        barbershopId: booking.barbershopId,
+        barbershopName: shop?.name ?? null,
+        serviceId: booking.serviceId,
+        serviceName: service?.name ?? null,
+        clientName: booking.clientName ?? null,
+        clientPhone: booking.clientPhone ?? null,
+        date: dateKey,
+        time,
+        status,
+        source: booking.source ?? null,
+        canCancel: canCancelBooking(dateKey, time, status),
+        notes: booking.notes ?? null,
+      }
+    }),
+  }
+}
+
 async function getAvailableSlots(payload: Record<string, any>) {
-  const barbershopId = String(payload?.barbershopId ?? "")
-  const dateStr = String(payload?.date ?? "")
-  const serviceId = payload?.serviceId ? String(payload.serviceId) : null
+  const barbershopId = normalizeString(payload?.barbershopId)
+  const dateStr = normalizeString(payload?.date)
+  const serviceId = payload?.serviceId ? normalizeString(payload.serviceId) : null
   const fallbackDuration = Number(payload?.durationMinutes ?? 30)
 
   if (!barbershopId) throw new Error("barbershopId obrigatorio")
   if (!dateStr) throw new Error("date obrigatoria, formato YYYY-MM-DD")
 
-  const targetDate = parseIsoDate(dateStr)
-  const dayStart = new Date(targetDate)
-  dayStart.setHours(0, 0, 0, 0)
-  const dayEnd = new Date(targetDate)
-  dayEnd.setHours(23, 59, 59, 999)
+  // Valida formato da data recebida
+  parseIsoDateParts(dateStr)
 
   const shop = await requireBarbershop(barbershopId)
   const services = normalizeServices(shop.services)
   const workingHours = ensureWorkingHours(shop.workingHours)
-  const dayKey = getDayKey(targetDate)
+  const dayKey = getDayKeyFromIsoDate(dateStr)
   const slotsForDay = workingHours[dayKey]
 
   if (!slotsForDay || slotsForDay.length === 0) {
@@ -242,13 +441,23 @@ async function getAvailableSlots(payload: Record<string, any>) {
   const blockedTimes = new Set<string>()
   existingBookingsSnap.forEach((doc) => {
     const data = doc.data() ?? {}
-    const bookingDate = ensureDate(data.date)
-    if (isWithinDay(bookingDate, dayStart, dayEnd) && STATUS_BLOCKED.has(String(data.status ?? ""))) {
+    const bookingDateKey =
+      typeof data.dateKey === "string" && data.dateKey
+        ? data.dateKey
+        : dateKeyFromDateInSaoPaulo(ensureDate(data.date))
+
+    if (bookingDateKey === dateStr && STATUS_BLOCKED.has(String(data.status ?? ""))) {
       blockedTimes.add(String(data.time ?? ""))
     }
   })
 
-  const availableSlots = allPossible.filter((time) => !blockedTimes.has(time))
+  let availableSlots = allPossible.filter((time) => !blockedTimes.has(time))
+
+  // Se a data solicitada for hoje em Sao Paulo, remove horarios que ja passaram.
+  if (currentSaoPauloDateKeyAndMinutes().dateKey === dateStr) {
+    const nowInSaoPaulo = currentSaoPauloDateKeyAndMinutes()
+    availableSlots = availableSlots.filter((slot) => minutesFromTime(slot) > nowInSaoPaulo.minutes)
+  }
 
   return {
     barbershopId,
@@ -260,17 +469,20 @@ async function getAvailableSlots(payload: Record<string, any>) {
 }
 
 async function bookAppointment(payload: Record<string, any>) {
-  const barbershopId = String(payload?.barbershopId ?? "")
-  const serviceId = String(payload?.serviceId ?? "")
-  const dateStr = String(payload?.date ?? "")
-  const time = String(payload?.time ?? "")
+  const barbershopId = normalizeString(payload?.barbershopId)
+  const serviceId = normalizeString(payload?.serviceId)
+  const dateStr = normalizeString(payload?.date)
+  const time = normalizeString(payload?.time)
 
   if (!barbershopId) throw new Error("barbershopId obrigatorio")
   if (!serviceId) throw new Error("serviceId obrigatorio")
   if (!dateStr) throw new Error("date obrigatoria, formato YYYY-MM-DD")
   if (!time) throw new Error("time obrigatorio, formato HH:mm")
 
-  const targetDate = parseIsoDate(dateStr)
+  const targetDate = buildUtcNoonDateFromIso(dateStr)
+  if (isSlotInThePastForToday(dateStr, time)) {
+    throw new Error("horario ja passou para hoje")
+  }
 
   const shop = await requireBarbershop(barbershopId)
   const services = normalizeServices(shop.services)
@@ -280,11 +492,6 @@ async function bookAppointment(payload: Record<string, any>) {
   }
 
   // Verifica conflito exato de horario antes de gravar sem indice composto.
-  const dayStart = new Date(targetDate)
-  dayStart.setHours(0, 0, 0, 0)
-  const dayEnd = new Date(targetDate)
-  dayEnd.setHours(23, 59, 59, 999)
-
   const conflictQuery = await adminDb
     .collection("bookings")
     .where("barbershopId", "==", barbershopId)
@@ -294,30 +501,46 @@ async function bookAppointment(payload: Record<string, any>) {
     const data = doc.data() ?? {}
     const status = String(data.status ?? "")
     const bookingTime = String(data.time ?? "")
-    const bookingDate = ensureDate(data.date)
-    return bookingTime === time && isWithinDay(bookingDate, dayStart, dayEnd) && STATUS_BLOCKED.has(status)
+    const bookingDateKey =
+      typeof data.dateKey === "string" && data.dateKey
+        ? data.dateKey
+        : dateKeyFromDateInSaoPaulo(ensureDate(data.date))
+
+    return bookingTime === time && bookingDateKey === dateStr && STATUS_BLOCKED.has(status)
   })
 
   if (hasConflict) {
     throw new Error("horario indisponivel")
   }
 
-  const clientPhone = payload?.clientPhone ? String(payload.clientPhone) : undefined
-  const bookingData = {
-    clientId: payload?.clientId ? String(payload.clientId) : `whatsapp:${clientPhone ?? "unknown"}`,
-    clientName: payload?.clientName ? String(payload.clientName) : "Cliente WhatsApp",
-    clientPhone,
+  const clientPhone = normalizeBrazilPhone(payload?.clientPhone ? normalizeString(payload.clientPhone) : undefined)
+  const rawPhoneDigits = digitsOnly(payload?.clientPhone ? normalizeString(payload.clientPhone) : undefined)
+  const rawClientId = payload?.clientId ? normalizeString(payload.clientId) : undefined
+  const clientId =
+    rawClientId && rawClientId.trim().length > 0
+      ? rawClientId
+      : rawPhoneDigits
+      ? `whatsapp:${rawPhoneDigits}`
+      : `whatsapp:${Date.now()}`
+  const clientName = payload?.clientName ? normalizeString(payload.clientName) : ""
+
+  const bookingData: Record<string, any> = {
+    clientId,
+    clientName: clientName || "Cliente WhatsApp",
     source: "whatsapp",
     barbershopId,
     serviceId,
     date: targetDate,
+    dateKey: dateStr,
     time,
     status: "pending",
-    notes: payload?.notes ? String(payload.notes) : undefined,
+    notes: payload?.notes ? normalizeString(payload.notes) : undefined,
     createdAt: new Date(),
     updatedAt: new Date(),
     updatedBy: "whatsapp-bot",
   }
+
+  if (clientPhone !== undefined) bookingData.clientPhone = clientPhone
 
   const ref = await adminDb.collection("bookings").add(bookingData)
 
@@ -332,7 +555,7 @@ async function bookAppointment(payload: Record<string, any>) {
 }
 
 async function cancelAppointment(payload: Record<string, any>) {
-  const bookingId = String(payload?.bookingId ?? "")
+  const bookingId = normalizeString(payload?.bookingId)
   if (!bookingId) throw new Error("bookingId obrigatorio")
 
   const bookingRef = adminDb.collection("bookings").doc(bookingId)
@@ -347,7 +570,7 @@ async function cancelAppointment(payload: Record<string, any>) {
     cancelledAt: new Date(),
     updatedAt: new Date(),
     updatedBy: "whatsapp-bot",
-    statusNote: payload?.reason ? String(payload.reason) : "Cancelado via WhatsApp",
+    statusNote: payload?.reason ? normalizeString(payload.reason) : "Cancelado via WhatsApp",
   })
 
   return {
@@ -360,6 +583,7 @@ const handlers: Record<WhatsAppAction, (payload: Record<string, any>) => Promise
   get_services: getServices,
   get_prices: getPrices,
   get_available_slots: getAvailableSlots,
+  get_client_bookings: getClientBookings,
   book_appointment: bookAppointment,
   cancel_appointment: cancelAppointment,
 }
@@ -415,7 +639,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: message }, { status: 404 })
     }
 
-    if (message.includes("horario indisponivel")) {
+    if (message.includes("horario indisponivel") || message.includes("horario ja passou")) {
       return NextResponse.json({ error: message }, { status: 409 })
     }
 

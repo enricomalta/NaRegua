@@ -149,7 +149,87 @@ curl -X POST http://localhost:3000/api/whatsapp \
   }'
 ```
 
-### 5) Cancelar agendamento
+### 5) Listar agendamentos do cliente
+Action: `get_client_bookings`
+
+Uso principal:
+- fluxo de cancelamento no bot
+- listar agendamentos futuros/cancelaveis por telefone ou clientId
+
+Payload por telefone:
+```json
+{
+  "clientPhone": "216363339620373"
+}
+```
+
+Payload por clientId:
+```json
+{
+  "clientId": "whatsapp:216363339620373"
+}
+```
+
+Payload com filtro por barbearia:
+```json
+{
+  "clientPhone": "216363339620373",
+  "barbershopId": "uiI4qalMWN2oHuOoiFZh"
+}
+```
+
+Payload mostrando todos, inclusive nao cancelaveis:
+```json
+{
+  "clientPhone": "216363339620373",
+  "onlyCancellable": false
+}
+```
+
+Exemplo curl:
+```bash
+curl -X POST http://localhost:3000/api/whatsapp \
+  -H "Content-Type: application/json" \
+  -H "x-secret-key: SUA_SECRET_KEY" \
+  -d '{
+    "action": "get_client_bookings",
+    "payload": {
+      "clientPhone": "216363339620373",
+      "onlyCancellable": true
+    }
+  }'
+```
+
+Exemplo de resposta:
+```json
+{
+  "ok": true,
+  "action": "get_client_bookings",
+  "result": {
+    "clientPhone": "216363339620373",
+    "total": 1,
+    "bookings": [
+      {
+        "bookingId": "vocIWyMwY1xfpRitSyWA",
+        "barbershopId": "uiI4qalMWN2oHuOoiFZh",
+        "barbershopName": "Mazza Barber",
+        "serviceId": "1",
+        "serviceName": "Corte Maquina",
+        "clientName": "Enrico Malta",
+        "clientPhone": "216363339620373",
+        "date": "2026-05-30",
+        "time": "17:30",
+        "status": "confirmed",
+        "source": "whatsapp",
+        "canCancel": true,
+        "notes": "Agendado via bot WhatsApp"
+      }
+    ]
+  }
+}
+```
+
+### 6) Cancelar agendamento
 Action: `cancel_appointment`
 
 Payload:

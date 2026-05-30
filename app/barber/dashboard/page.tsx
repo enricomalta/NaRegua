@@ -11,7 +11,7 @@ import { useAuth } from "@/lib/auth-context"
 import { useRoleProtection } from "@/hooks/use-role-protection"
 import { usePermissions } from "@/hooks/use-permissions"
 import { getBarbershops, getBookingsByBarbershop, getReviewsByBarbershop, updateBookingStatus } from "@/lib/firebase-service"
-import { Calendar, DollarSign, Star, Clock, CheckCircle2, XCircle, Settings, Eye, AlertTriangle, Loader2 } from "lucide-react"
+import { Calendar, DollarSign, Star, Clock, CheckCircle2, XCircle, Settings, Eye, AlertTriangle, Loader2, MessageCircle } from "lucide-react"
 import Link from "next/link"
 import { formatDate } from "@/lib/utils"
 import type { Barbershop, Booking, Review } from "@/lib/types"
@@ -235,9 +235,16 @@ export default function BarberDashboardPage() {
     return barbershop.services.find((s) => s.id === serviceId)?.name || "Serviço"
   }
 
-  const getClientName = (clientId: string) => {
-    // TODO: Implementar busca real do nome do cliente
-    return `Cliente ${clientId.slice(0, 8)}`
+  const getClientName = (booking: Booking) => {
+    if (booking.clientName && booking.clientName.trim().length > 0) {
+      return booking.clientName
+    }
+
+    if (booking.clientId.startsWith("whatsapp:")) {
+      return "Cliente WhatsApp"
+    }
+
+    return `Cliente ${booking.clientId.slice(0, 8)}`
   }
 
   const getStatusBadge = (status: string) => {
@@ -402,7 +409,15 @@ export default function BarberDashboardPage() {
                       {bookings.slice(0, 5).map((booking) => (
                         <div key={booking.id} className="flex items-center justify-between p-4 border rounded-lg">
                           <div>
-                            <p className="font-medium">{getClientName(booking.clientId)}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium">{getClientName(booking)}</p>
+                              {booking.source === "whatsapp" && (
+                                <Badge className="h-6 px-2 text-xs gap-1 bg-[#25D366]/10 text-[#25D366] border-[#25D366]/30">
+                                  <MessageCircle className="h-3 w-3" />
+                                  WhatsApp
+                                </Badge>
+                              )}
+                            </div>
                             <p className="text-sm text-muted-foreground">
                               {getServiceName(booking.serviceId)} - {formatDate(booking.date)} às {booking.time}
                             </p>
@@ -490,7 +505,15 @@ export default function BarberDashboardPage() {
                       <div className="flex-1">
                         <div className="flex items-center gap-4">
                           <div>
-                            <p className="font-medium">{getClientName(booking.clientId)}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium">{getClientName(booking)}</p>
+                              {booking.source === "whatsapp" && (
+                                <Badge variant="outline" className="h-6 px-2 text-xs gap-1 bg-[#25D366]/10 text-[#25D366] border-[#25D366]/30">
+                                  <MessageCircle className="h-3 w-3" />
+                                  WhatsApp
+                                </Badge>
+                              )}
+                            </div>
                             <p className="text-sm text-muted-foreground">
                               {getServiceName(booking.serviceId)}
                             </p>

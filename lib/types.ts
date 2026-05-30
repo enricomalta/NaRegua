@@ -152,6 +152,9 @@ export interface TimeSlot {
 export interface Booking {
   id: string
   clientId: string
+  clientName?: string
+  clientPhone?: string
+  source?: "web" | "whatsapp" | string
   barbershopId: string
   serviceId: string
   barberId?: string // ID do barbeiro que vai atender
