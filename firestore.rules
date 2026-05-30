@@ -1,98 +1,20 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isAuthenticated() {
-      return request.auth != null;
-    }
+    match /{document=**} {
+      allow read, write: if false;
+      // ========================================
+      // 🔒 ZERO-TRUST POLICY
+      // ========================================
+      // Por padrão, BLOQUEAR TUDO.
+      // Todas as operações devem passar por APIs server-side.
+      // Metodo Security Acess
 
-    function isSameUser(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
-    }
-
-    function userHasRole(role) {
-      return isAuthenticated() && (
-        request.auth.token.role == role ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role
-      );
-    }
-
-    function isBarbershopOwner(barbershopId) {
-      return isAuthenticated() &&
-        get(/databases/$(database)/documents/barbershops/$(barbershopId)).data.ownerId == request.auth.uid;
-    }
-
-    function isOwnerOrAdmin() {
-      return isAuthenticated() &&
-        (request.auth.uid == resource.data.ownerId || userHasRole('admin'));
-    }
-
-    function isFavoriteCounterUpdate() {
-      return isAuthenticated() &&
-        request.resource.data.diff(resource.data).changedKeys().hasOnly(['favoriteCount', 'updatedAt']) &&
-        request.resource.data.favoriteCount is int &&
-        request.resource.data.favoriteCount >= 0;
-    }
-
-    // Regras para usuários - só podem acessar seus próprios dados
-    match /users/{userId} {
-      allow read, write: if isSameUser(userId);
-      allow create: if isAuthenticated();
-    }
-
-    // Perfis públicos com dados sanitizados
-    match /userPublicProfiles/{userId} {
-      allow read: if true;
-      allow create, update, delete: if isSameUser(userId) || (isAuthenticated() && request.auth.token.role == 'admin');
-    }
-    
-    // Regras para barbearias
-    match /barbershops/{barbershopId} {
-      allow read: if true; // Qualquer um pode ler barbearias
-      allow create: if userHasRole('barber');
-      allow update: if isOwnerOrAdmin() || isFavoriteCounterUpdate();
-      allow delete: if isOwnerOrAdmin();
-    }
-    
-    // Regras para agendamentos
-    match /bookings/{bookingId} {
-      allow read: if isAuthenticated() && 
-        (request.auth.uid == resource.data.clientId || 
-         request.auth.uid == resource.data.barberId ||
-         request.auth.token.role == 'admin' ||
-         isBarbershopOwner(resource.data.barbershopId));
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && 
-        (request.auth.uid == resource.data.clientId || 
-         request.auth.uid == resource.data.barberId ||
-         request.auth.token.role == 'admin' ||
-         isBarbershopOwner(resource.data.barbershopId));
-      allow delete: if isAuthenticated() && 
-        (request.auth.uid == resource.data.clientId || request.auth.token.role == 'admin' ||
-         isBarbershopOwner(resource.data.barbershopId));
-    }
-    
-    // Regras para avaliações
-    match /reviews/{reviewId} {
-      allow read: if true; // Qualquer um pode ler avaliações
-      allow create: if isAuthenticated();
-      allow update, delete: if isAuthenticated() && 
-        (request.auth.uid == resource.data.clientId || request.auth.token.role == 'admin');
-    }
-    
-    // Regras para funcionários
-    match /employees/{employeeId} {
-      allow read: if isAuthenticated();
-      allow create, update, delete: if isAuthenticated() && 
-        (userHasRole('barber') || userHasRole('admin'));
-    }
-
-    // Regras para favoritos de barbearias
-    match /barbershopFavorites/{favoriteId} {
-      allow read: if isAuthenticated() && (resource == null || request.auth.uid == resource.data.userId);
-      allow create, update: if isAuthenticated() &&
-        request.resource.data.userId == request.auth.uid &&
-        request.resource.data.barbershopId is string;
-      allow delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
+      // ========================================
+      // 🚫 BLOQUEIO TOTAL: Todas Coleções
+      // ========================================
+      // TUDO via API server-side (Firebase Admin SDK)
     }
   }
 }

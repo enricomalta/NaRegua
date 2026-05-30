@@ -19,7 +19,7 @@ export function Header() {
   const borderOpacity = useTransform(scrollY, [0, 100], [0.4, 0.8])
 
   useEffect(() => {
-    const unsubscribe = scrollY.onChange((latest) => {
+    const unsubscribe = scrollY.on("change", (latest) => {
       setIsScrolled(latest > 50)
     })
     return unsubscribe

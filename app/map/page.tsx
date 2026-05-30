@@ -56,9 +56,13 @@ export default function MapPage() {
         setLocationError(null)
       },
       (error) => {
-        console.error("Erro ao obter localização do usuário:", error)
+        console.error(
+          "Erro ao obter localização do usuário:",
+          error && (error.message || JSON.stringify(error) || error)
+        )
         setUserLocation(null)
         setLocationStatus("denied")
+      
 
         switch (error.code) {
           case error.PERMISSION_DENIED:

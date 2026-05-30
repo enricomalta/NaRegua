@@ -34,7 +34,7 @@ function isProtectedRoute(pathname: string): boolean {
 }
 
 function isPublicRoute(pathname: string): boolean {
-  return PUBLIC_ROUTES.some(route => 
+  return PUBLIC_ROUTES.some(route =>
     pathname === route || pathname.startsWith(route + '/')
   )
 }
@@ -62,7 +62,7 @@ function canAccessRoute(pathname: string, userRole: string): boolean {
   return true
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname
 
   // Permitir acesso a rotas públicas
@@ -82,7 +82,7 @@ export function middleware(request: NextRequest) {
     }
 
     const userRole = getRoleFromAuthData(authCookie)
-    
+
     if (!userRole) {
       // Dados inválidos, redirecionar para login
       const loginUrl = new URL('/login', request.url)

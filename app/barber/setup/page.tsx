@@ -447,7 +447,7 @@ export default function BarberSetupPage() {
                         <Input
                           type="number"
                           value={service.duration}
-                          onChange={(e) => updateService(service.id, "duration", Number.parseInt(e.target.value))}
+                          onChange={(e) => updateService(service.id, "duration", Number.parseInt(e.target.value) || 0)}
                           min="15"
                           step="15"
                           required
@@ -469,7 +469,7 @@ export default function BarberSetupPage() {
                       <Input
                         type="number"
                         value={service.price}
-                        onChange={(e) => updateService(service.id, "price", Number.parseFloat(e.target.value))}
+                        onChange={(e) => updateService(service.id, "price", Number.parseFloat(e.target.value) || 0)}
                         min="0"
                         step="0.01"
                         required

@@ -29,9 +29,11 @@ export function LeafletMap({
   useEffect(() => {
     if (typeof window === "undefined") return
 
+    let isMounted = true
+
     // Load Leaflet dynamically
     import("leaflet").then((L) => {
-      if (!mapRef.current || mapInstanceRef.current) return
+      if (!isMounted || !mapRef.current || mapInstanceRef.current) return
 
       // Initialize map
       const map = L.map(mapRef.current, {
@@ -48,15 +50,25 @@ export function LeafletMap({
         maxZoom: 20,
       }).addTo(map)
 
+      if (!isMounted) {
+        try { map.remove() } catch {}
+        return
+      }
+
       mapInstanceRef.current = map
       setIsLoaded(true)
+    })
 
-      // Cleanup
-      return () => {
-        map.remove()
+    return () => {
+      isMounted = false
+      if (mapInstanceRef.current) {
+        try { mapInstanceRef.current.remove() } catch {}
         mapInstanceRef.current = null
       }
-    })
+      markersRef.current = []
+      userMarkerRef.current = null
+      setIsLoaded(false)
+    }
   }, [center.lat, center.lng, zoom])
 
   useEffect(() => {
@@ -66,17 +78,18 @@ export function LeafletMap({
 
     import("leaflet").then((L) => {
       const map = mapInstanceRef.current
+      if (!map) return
 
       if (!userLocation) {
         if (userMarkerRef.current) {
-          userMarkerRef.current.remove()
+          try { userMarkerRef.current.remove() } catch {}
           userMarkerRef.current = null
         }
         return
       }
 
       if (userMarkerRef.current) {
-        userMarkerRef.current.remove()
+        try { userMarkerRef.current.remove() } catch {}
         userMarkerRef.current = null
       }
 
@@ -91,9 +104,11 @@ export function LeafletMap({
       marker.bindPopup("Você está aqui")
       userMarkerRef.current = marker
 
-      map.flyTo([userLocation.lat, userLocation.lng], Math.max(map.getZoom(), zoom), {
-        duration: 1.2,
-      })
+      try {
+        map.flyTo([userLocation.lat, userLocation.lng], Math.max(map.getZoom(), zoom), {
+          duration: 1.2,
+        })
+      } catch {}
     })
   }, [userLocation, isLoaded, zoom])
 
@@ -102,9 +117,10 @@ export function LeafletMap({
 
     import("leaflet").then((L) => {
       const map = mapInstanceRef.current
+      if (!map) return
 
       // Clear existing markers
-      markersRef.current.forEach((marker) => marker.remove())
+      markersRef.current.forEach((marker) => { try { marker.remove() } catch {} })
       markersRef.current = []
 
       // Create custom icon
